@@ -30,6 +30,7 @@
     // ==========================================
     const WEBHOOK_LOAD_URL = 'https://158.179.174.86.sslip.io/webhook-test/795acae9-62b5-4ba0-b0ce-a80f9e3a5d88';
     const WEBHOOK_EDIT_URL = 'https://158.179.174.86.sslip.io/webhook-test/0d46d84b-8a63-4c11-9536-bb50c5e34a5f';
+    const WEBHOOK_PWD_URL  = 'https://158.179.174.86.sslip.io/webhook-test/ae2b0e5c-37ec-42f9-a5b3-4bd7469872c4';
 
     // ==========================================
     // Google Sheets 설정
@@ -547,6 +548,182 @@
     };
 
     // ==========================================
+    // 비밀번호 변경 모달 컴포넌트
+    // - 현재 비밀번호 확인 후 새 비밀번호로 변경
+    // - WEBHOOK_PWD_URL로 로그인 정보 전체 전송
+    // ==========================================
+    const ChangePwdModal = ({ currentUser, onClose, onSuccess }) => {
+      const [newPwd,     setNewPwd]     = useState('');
+      const [confirmPwd, setConfirmPwd] = useState('');
+      const [showNew,    setShowNew]    = useState(false);
+      const [showConf,   setShowConf]   = useState(false);
+      const [isSending,  setIsSending]  = useState(false);
+      const [errMsg,     setErrMsg]     = useState('');
+      const [successMsg, setSuccessMsg] = useState('');
+
+      const handleSubmit = async (e) => {
+        e.preventDefault();
+        setErrMsg('');
+        setSuccessMsg('');
+
+        if (newPwd.length < 4) { setErrMsg('새 비밀번호는 4자리 이상이어야 합니다.'); return; }
+        if (newPwd !== confirmPwd) { setErrMsg('새 비밀번호와 확인이 일치하지 않습니다.'); return; }
+        if (newPwd === currentUser.password) { setErrMsg('현재 비밀번호와 동일합니다. 다른 비밀번호를 입력하세요.'); return; }
+
+        setIsSending(true);
+        try {
+          // 웹훅으로 로그인 정보 전체 + 새 비밀번호 전송
+          const payload = {
+            ID:           currentUser.id,
+            현재비밀번호: currentUser.password,
+            새비밀번호:   newPwd,
+            현장명:       currentUser.siteName,
+            회사:         currentUser.company,
+            계약금액:     currentUser.contractAmount
+          };
+          console.log('[changePwd] 전송:', JSON.stringify(payload, null, 2));
+
+          const res = await fetchWithTimeout(WEBHOOK_PWD_URL, {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json, text/plain, */*' },
+            body:    JSON.stringify(payload)
+          });
+
+          if (!res.ok) {
+            const errText = await res.text().catch(() => '');
+            throw new Error(`HTTP ${res.status}${errText ? ' — ' + errText.slice(0, 120) : ''}`);
+          }
+
+          setSuccessMsg('비밀번호가 성공적으로 변경되었습니다.');
+          setTimeout(() => onSuccess(newPwd), 1500);
+
+        } catch (e) {
+          const isNet = e.message.includes('Failed to fetch') || e.message.includes('NetworkError') || e.message.includes('시간 초과');
+          setErrMsg(isNet
+            ? 'n8n 서버에 연결할 수 없습니다. 워크플로우 활성 상태를 확인하세요.'
+            : e.message
+          );
+        } finally {
+          setIsSending(false);
+        }
+      };
+
+      return (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] p-4 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl border border-gray-100">
+            {/* 헤더 */}
+            <div className="flex justify-between items-center mb-5">
+              <h3 className="font-bold text-gray-800 flex items-center gap-2">
+                <span className="material-symbols-outlined text-blue-600">key</span>
+                비밀번호 변경
+              </h3>
+              <button onClick={onClose} className="text-gray-400 hover:text-gray-700 transition-colors">
+                <span className="material-symbols-outlined">close</span>
+              </button>
+            </div>
+
+            {/* 현재 계정 정보 (읽기 전용) */}
+            <div className="bg-gray-50 rounded-xl p-3 mb-5 border border-gray-200">
+              <p className="text-[11px] text-gray-500 font-bold mb-1">현재 계정 정보</p>
+              <div className="grid grid-cols-2 gap-1 text-[11px] text-gray-700">
+                <div>ID: <span className="font-bold text-gray-900">{currentUser.id}</span></div>
+                <div>현장: <span className="font-bold text-gray-900">{currentUser.siteName || '—'}</span></div>
+                <div>회사: <span className="font-bold text-gray-900">{currentUser.company || '—'}</span></div>
+                <div>현재 PW: <span className="font-mono font-bold text-gray-900">{'•'.repeat(Math.min(currentUser.password.length, 8))}</span></div>
+              </div>
+            </div>
+
+            <form onSubmit={handleSubmit} className="space-y-4">
+              {/* 새 비밀번호 */}
+              <div>
+                <label className="block text-xs font-bold text-gray-600 mb-1.5">새 비밀번호</label>
+                <div className="relative">
+                  <input
+                    type={showNew ? 'text' : 'password'}
+                    value={newPwd}
+                    onChange={e => setNewPwd(e.target.value)}
+                    placeholder="새 비밀번호 입력"
+                    className="w-full border border-gray-300 pl-3 pr-10 py-2.5 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                    required autoFocus
+                  />
+                  <button type="button" onClick={() => setShowNew(v => !v)} tabIndex={-1}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700">
+                    <span className="material-symbols-outlined" style={{fontSize:'16px'}}>{showNew ? 'visibility_off' : 'visibility'}</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* 비밀번호 확인 */}
+              <div>
+                <label className="block text-xs font-bold text-gray-600 mb-1.5">새 비밀번호 확인</label>
+                <div className="relative">
+                  <input
+                    type={showConf ? 'text' : 'password'}
+                    value={confirmPwd}
+                    onChange={e => setConfirmPwd(e.target.value)}
+                    placeholder="새 비밀번호 재입력"
+                    className={`w-full border pl-3 pr-10 py-2.5 rounded-xl text-sm outline-none focus:ring-2 transition-colors ${
+                      confirmPwd && newPwd !== confirmPwd
+                        ? 'border-red-300 focus:ring-red-400'
+                        : confirmPwd && newPwd === confirmPwd
+                          ? 'border-green-300 focus:ring-green-400'
+                          : 'border-gray-300 focus:ring-blue-500'
+                    }`}
+                    required
+                  />
+                  <button type="button" onClick={() => setShowConf(v => !v)} tabIndex={-1}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700">
+                    <span className="material-symbols-outlined" style={{fontSize:'16px'}}>{showConf ? 'visibility_off' : 'visibility'}</span>
+                  </button>
+                </div>
+                {confirmPwd && newPwd !== confirmPwd && (
+                  <p className="text-[10px] text-red-500 mt-1 flex items-center gap-0.5">
+                    <span className="material-symbols-outlined" style={{fontSize:'12px'}}>close</span>
+                    비밀번호가 일치하지 않습니다
+                  </p>
+                )}
+                {confirmPwd && newPwd === confirmPwd && (
+                  <p className="text-[10px] text-green-600 mt-1 flex items-center gap-0.5">
+                    <span className="material-symbols-outlined" style={{fontSize:'12px'}}>check</span>
+                    비밀번호가 일치합니다
+                  </p>
+                )}
+              </div>
+
+              {/* 오류/성공 메시지 */}
+              {errMsg && (
+                <div className="bg-red-50 text-red-600 text-xs p-3 rounded-lg border border-red-100 flex items-start gap-2 animate-fade-in">
+                  <span className="material-symbols-outlined flex-shrink-0 mt-0.5" style={{fontSize:'15px'}}>error</span>
+                  {errMsg}
+                </div>
+              )}
+              {successMsg && (
+                <div className="bg-green-50 text-green-700 text-xs p-3 rounded-lg border border-green-100 flex items-center gap-2 font-bold animate-fade-in">
+                  <span className="material-symbols-outlined" style={{fontSize:'15px'}}>check_circle</span>
+                  {successMsg}
+                </div>
+              )}
+
+              <div className="flex gap-2 pt-1">
+                <button type="button" onClick={onClose} disabled={isSending}
+                  className="flex-1 py-2.5 bg-gray-100 text-gray-700 font-bold rounded-xl text-sm hover:bg-gray-200 transition-colors disabled:opacity-50">
+                  취소
+                </button>
+                <button type="submit" disabled={isSending || !newPwd || !confirmPwd}
+                  className="flex-1 py-2.5 bg-blue-600 text-white font-bold rounded-xl text-sm shadow hover:bg-blue-700 transition-colors disabled:opacity-50 flex justify-center items-center gap-1.5">
+                  {isSending
+                    ? <><span className="material-symbols-outlined animate-spin" style={{fontSize:'15px'}}>sync</span> 변경 중...</>
+                    : <><span className="material-symbols-outlined" style={{fontSize:'15px'}}>check</span> 변경하기</>
+                  }
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      );
+    };
+
+    // ==========================================
     // 기성내역서 탭 컴포넌트
     //
     // 금액 표시 규칙 (formatPrice):
@@ -895,11 +1072,12 @@
       const [dbSiteList, setDbSiteList] = useState([]);
 
       // ---- 앱 상태 ----
-      const [activeTab,      setActiveTab]      = useState('statements');
-      const [isAdmin,        setIsAdmin]        = useState(false);
-      const [isPwdModalOpen, setIsPwdModalOpen] = useState(false);
-      const [pwdInput,       setPwdInput]       = useState('');
-      const [contracts,      setContracts]      = useState({});
+      const [activeTab,         setActiveTab]         = useState('statements');
+      const [isAdmin,           setIsAdmin]           = useState(false);
+      const [isPwdModalOpen,    setIsPwdModalOpen]    = useState(false);
+      const [pwdInput,          setPwdInput]          = useState('');
+      const [contracts,         setContracts]         = useState({});
+      const [isChangePwdOpen,   setIsChangePwdOpen]   = useState(false);
 
       // ---- 공유 데이터 상태 ----
       const [statements,   setStatements]   = useState([]);
@@ -947,6 +1125,7 @@
             id:             String(matched['ID']).trim(),
             name:           String(matched['ID']).trim(),
             email:          String(matched['ID']).trim(), // 내 기록 식별자
+            password:       password,                    // 비밀번호 변경 시 사용
             siteName:       String(matched['현장명'] ?? '').trim(),
             company:        String(matched['회사'] ?? '').trim(),
             role:           String(matched['회사'] ?? '').trim(),
@@ -1057,7 +1236,7 @@
               <div className="w-11 h-11 bg-blue-600 rounded-xl flex items-center justify-center text-white font-bold text-xl shadow-inner">H</div>
               <div>
                 <h1 className="text-lg font-extrabold text-gray-900 tracking-tight leading-tight">현장 소통 허브</h1>
-                <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Field Hub v2.5</p>
+                <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Field Hub v2.6</p>
               </div>
             </div>
             <div className="text-right">
@@ -1072,11 +1251,19 @@
                   {currentUser.id}{currentUser.company ? ` · ${currentUser.company}` : ''}
                 </p>
               </div>
-              <button onClick={handleLogout}
-                className="flex items-center gap-0.5 text-[10px] text-gray-400 hover:text-red-500 transition-colors mt-1 ml-auto">
-                <span className="material-symbols-outlined" style={{fontSize:'13px'}}>logout</span>
-                로그아웃
-              </button>
+              <div className="flex items-center justify-end gap-2 mt-1">
+                <button onClick={() => setIsChangePwdOpen(true)}
+                  className="flex items-center gap-0.5 text-[10px] text-gray-400 hover:text-blue-500 transition-colors">
+                  <span className="material-symbols-outlined" style={{fontSize:'13px'}}>key</span>
+                  비밀번호 변경
+                </button>
+                <span className="text-gray-300 text-[10px]">|</span>
+                <button onClick={handleLogout}
+                  className="flex items-center gap-0.5 text-[10px] text-gray-400 hover:text-red-500 transition-colors">
+                  <span className="material-symbols-outlined" style={{fontSize:'13px'}}>logout</span>
+                  로그아웃
+                </button>
+              </div>
             </div>
           </header>
 
@@ -1137,6 +1324,19 @@
               />
             )}
           </main>
+
+          {/* 비밀번호 변경 모달 */}
+          {isChangePwdOpen && (
+            <ChangePwdModal
+              currentUser={currentUser}
+              onClose={() => setIsChangePwdOpen(false)}
+              onSuccess={(newPwd) => {
+                // 변경 성공 시 메모리 상의 비밀번호도 갱신
+                setCurrentUser(prev => ({ ...prev, password: newPwd }));
+                setIsChangePwdOpen(false);
+              }}
+            />
+          )}
 
           {/* 관리자 인증 모달 */}
           {isPwdModalOpen && (
