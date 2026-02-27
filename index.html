@@ -815,6 +815,7 @@
           setIsFormModalOpen(false);
           setEditingRowIndex(null);
           setNewForm({ year: String(new Date().getFullYear()), month: String(new Date().getMonth() + 1), round: '1', category: '기계', amount: '', prevAmount: '' });
+          await new Promise(r => setTimeout(r, 1500)); // 구글시트 반영 대기
           await loadData(true);
         } catch (e) {
           const isNetworkError = e.message.includes('Failed to fetch') || e.message.includes('NetworkError') || e.message.includes('시간 초과');
@@ -1086,6 +1087,25 @@
       const [isLoginLoading, setIsLoginLoading] = useState(false);
       const [loginError,     setLoginError]     = useState(null);
 
+      // ==========================================
+      // 페이지 로드 시 localStorage 세션 복원
+      // ==========================================
+      useEffect(() => {
+        try {
+          const saved = localStorage.getItem('gisungUser');
+          if (saved) {
+            const { userObj, isAdminSaved, contractsSaved, siteListSaved } = JSON.parse(saved);
+            setCurrentUser(userObj);
+            setIsAdmin(isAdminSaved || false);
+            setContracts(contractsSaved || {});
+            setDbSiteList(siteListSaved || []);
+            setIsLoggedIn(true);
+          }
+        } catch (e) {
+          localStorage.removeItem('gisungUser');
+        }
+      }, []);
+
       // ---- DB정보에서 추출한 현장 목록 (공란 제거, 순서 유지) ----
       const [dbSiteList, setDbSiteList] = useState([]);
 
@@ -1167,6 +1187,14 @@
           setCurrentUser(userObj);
           setIsLoggedIn(true);
 
+          // 세션 localStorage 저장 (F5 새로고침 대비)
+          localStorage.setItem('gisungUser', JSON.stringify({
+            userObj,
+            isAdminSaved:    isMaster,
+            contractsSaved:  initContracts,
+            siteListSaved:   siteNames
+          }));
+
         } catch (e) {
           console.error('[login] 실패:', e.message);
           setLoginError(e.message);
@@ -1179,6 +1207,7 @@
       // 로그아웃: 모든 상태 초기화
       // ==========================================
       const handleLogout = () => {
+        localStorage.removeItem('gisungUser');
         setIsLoggedIn(false);
         setCurrentUser(null);
         setDbSiteList([]);
