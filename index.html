@@ -474,70 +474,95 @@
               DB에 등록된 현장이 없습니다.
             </div>
           ) : (
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3">
               {siteList.map(site => {
                 const siteStmts    = filtered.filter(s => s.현장명 === site);
                 const isSubmitted  = siteStmts.length > 0;
                 const categories   = [...new Set(siteStmts.map(s => s.공종))];
-                const siteTotal    = siteStmts.reduce((sum, s) => sum + parseAmount(s.금회기성), 0);
-                // 금액 가시성: 관리자 OR 내 현장
+                const contractAmt  = isSubmitted ? parseAmount(siteStmts[0].계약금액) : 0;
+                const prevTotal    = siteStmts.reduce((sum, s) => sum + parseAmount(s.전회기성), 0);
+                const curTotal     = siteStmts.reduce((sum, s) => sum + parseAmount(s.금회기성), 0);
+                const cumTotal     = siteStmts.reduce((sum, s) => sum + parseAmount(s.누계기성), 0);
+                const rate         = contractAmt > 0 ? (cumTotal / contractAmt) * 100 : 0;
                 const canSeeAmount = isAdmin || site === currentUser.siteName;
                 const isOwnSite    = site === currentUser.siteName;
+                const colorText    = isOwnSite && !isAdmin ? 'text-blue-700'  : 'text-green-700';
+                const colorBadge   = isOwnSite && !isAdmin ? 'bg-blue-200 text-blue-800' : 'bg-green-200 text-green-800';
+                const colorBar     = isOwnSite && !isAdmin ? 'bg-blue-500'    : 'bg-green-500';
 
                 return (
                   <div key={site}
-                    className={`p-3 rounded-xl border transition-all ${
+                    className={`p-4 rounded-xl border transition-all ${
                       isSubmitted
-                        ? isOwnSite && !isAdmin
-                          ? 'bg-blue-50 border-blue-200'   // 내 현장: 파란 강조
-                          : 'bg-green-50 border-green-200' // 타 현장 제출
-                        : 'bg-gray-50 border-gray-200'     // 미제출
+                        ? isOwnSite && !isAdmin ? 'bg-blue-50 border-blue-200' : 'bg-green-50 border-green-200'
+                        : 'bg-gray-50 border-gray-200'
                     }`}
                   >
-                    <div className="flex items-start gap-2">
+                    {/* 현장명 + 상태 아이콘 */}
+                    <div className="flex items-center gap-2 mb-2">
                       <span
-                        className={`material-symbols-outlined flex-shrink-0 mt-0.5 ${
-                          isSubmitted
-                            ? isOwnSite && !isAdmin ? 'text-blue-500' : 'text-green-500'
-                            : 'text-gray-300'
+                        className={`material-symbols-outlined flex-shrink-0 ${
+                          isSubmitted ? (isOwnSite && !isAdmin ? 'text-blue-500' : 'text-green-500') : 'text-gray-300'
                         }`}
                         style={{fontSize:'18px'}}
                       >
                         {isSubmitted ? 'check_circle' : 'radio_button_unchecked'}
                       </span>
-                      <div className="flex-1 min-w-0">
-                        <div className={`text-xs font-bold leading-tight truncate ${
-                          isSubmitted
-                            ? isOwnSite && !isAdmin ? 'text-blue-900' : 'text-green-900'
-                            : 'text-gray-500'
-                        }`}>
-                          {site}
-                          {isOwnSite && !isAdmin && (
-                            <span className="ml-1 text-[9px] bg-blue-200 text-blue-800 px-1 py-0.5 rounded font-bold">내 현장</span>
-                          )}
-                        </div>
-                        {isSubmitted ? (
-                          <div className="mt-1.5 space-y-1">
-                            <div className="flex flex-wrap gap-1">
-                              {categories.map(cat => (
-                                <span key={cat} className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${
-                                  isOwnSite && !isAdmin
-                                    ? 'bg-blue-200 text-blue-800'
-                                    : 'bg-green-200 text-green-800'
-                                }`}>{cat}</span>
-                              ))}
-                            </div>
-                            {canSeeAmount && (
-                              <div className={`text-[10px] font-bold ${isOwnSite && !isAdmin ? 'text-blue-700' : 'text-green-700'}`}>
-                                ₩{siteTotal.toLocaleString()}
-                              </div>
-                            )}
-                          </div>
-                        ) : (
-                          <div className="text-[10px] text-gray-400 mt-1">미제출</div>
-                        )}
+                      <span className={`text-sm font-bold truncate ${
+                        isSubmitted ? (isOwnSite && !isAdmin ? 'text-blue-900' : 'text-green-900') : 'text-gray-500'
+                      }`}>
+                        {site}
+                      </span>
+                      {isOwnSite && !isAdmin && (
+                        <span className="ml-1 text-[9px] bg-blue-200 text-blue-800 px-1.5 py-0.5 rounded font-bold shrink-0">내 현장</span>
+                      )}
+                      {/* 공종 뱃지 */}
+                      <div className="flex flex-wrap gap-1 ml-auto shrink-0">
+                        {categories.map(cat => (
+                          <span key={cat} className={`text-[9px] px-1.5 py-0.5 rounded font-bold ${colorBadge}`}>{cat}</span>
+                        ))}
                       </div>
                     </div>
+
+                    {isSubmitted ? (
+                      canSeeAmount ? (
+                        <div className="space-y-1">
+                          {/* 금액 4행 */}
+                          {[
+                            { label: '계약금액', value: contractAmt },
+                            { label: '전  회',   value: prevTotal },
+                            { label: '금  회',   value: curTotal },
+                            { label: '누  계',   value: cumTotal },
+                          ].map(({ label, value }) => (
+                            <div key={label} className="flex items-center justify-between">
+                              <span className="text-[11px] text-gray-500 w-16 shrink-0">{label}</span>
+                              <span className={`text-[11px] font-bold tabular-nums ${colorText}`}>
+                                ₩{value.toLocaleString()}
+                              </span>
+                            </div>
+                          ))}
+                          {/* 기성률 + 프로그레스바 */}
+                          <div className="pt-1">
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="text-[11px] text-gray-500 w-16 shrink-0">기성률</span>
+                              <span className={`text-[11px] font-extrabold tabular-nums ${colorText}`}>
+                                {rate.toFixed(1)}%
+                              </span>
+                            </div>
+                            <div className="w-full bg-gray-200 rounded-full h-1.5">
+                              <div
+                                className={`h-1.5 rounded-full transition-all duration-500 ${colorBar}`}
+                                style={{width:`${Math.min(rate, 100)}%`}}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="text-[11px] text-gray-400 mt-1">금액 비공개</div>
+                      )
+                    ) : (
+                      <div className="text-[11px] text-gray-400">미제출</div>
+                    )}
                   </div>
                 );
               })}
