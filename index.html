@@ -32,12 +32,19 @@
     const WEBHOOK_EDIT_URL = 'https://158.179.174.86.sslip.io/webhook-test/0d46d84b-8a63-4c11-9536-bb50c5e34a5f';
 
     // ==========================================
-    // Google Sheets 직접 조회 설정
+    // Google Sheets 설정
     // ==========================================
     const SHEET_ID   = '1K3X7vKsm21Bt9kIro8JpYcZmBU03nT7l5ipgsU6JAw4';
+
+    // 기성리스트 시트
     const SHEET_NAME = '기성리스트';
     const SHEETS_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(SHEET_NAME)}&headers=1`;
     const COL_NAMES  = ['이름','직책','이메일','현장명','연도','월','회차','공종','계약금액','전회기성','금회기성','누계기성','잔여금액','기성률','업데이트','고유코드'];
+
+    // DB정보 시트 (로그인용)
+    const DB_SHEET_NAME = 'DB정보';
+    const DB_SHEETS_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(DB_SHEET_NAME)}&headers=1`;
+    const DB_COL_NAMES  = ['ID', '비밀번호', '현장명', '회사', '계약금액'];
 
     const SITE_LIST = [
       '모아 평택고덕', '미추1구역', '중흥 경기송정', '제일 고양장항', '제일 인천계양',
@@ -60,12 +67,8 @@
     const parseN8nResponse = (text) => {
       if (!text || !text.trim()) return [];
       let parsed;
-      try { parsed = JSON.parse(text); } catch (e) {
-        console.warn('[parseN8nResponse] JSON 파싱 실패. 원본:', text.slice(0, 300));
-        return [];
-      }
+      try { parsed = JSON.parse(text); } catch (e) { return []; }
       if (Array.isArray(parsed) && parsed.length > 0 && parsed[0] && typeof parsed[0].json === 'object') {
-        console.log('[parseN8nResponse] n8n 내부 포맷 → json 언래핑');
         return parsed.map(item => item.json);
       }
       if (Array.isArray(parsed)) return parsed;
@@ -76,7 +79,8 @@
       return [];
     };
 
-    const parseGSheetResponse = (text) => {
+    // colNames 파라미터 추가 — 기성리스트·DB정보 시트 양쪽에 재사용
+    const parseGSheetResponse = (text, colNames = COL_NAMES) => {
       const match = text.match(/google\.visualization\.Query\.setResponse\(([\s\S]*)\);?\s*$/);
       if (!match) throw new Error('Google Sheets 응답 형식을 파싱하지 못했습니다. 시트 공유 설정을 확인하세요.');
       const json = JSON.parse(match[1]);
@@ -91,7 +95,7 @@
         .map((row, idx) => {
           const obj = { _rowIndex: idx + 2 };
           cols.forEach((col, ci) => {
-            const key = COL_NAMES[ci] || col.label || col.id;
+            const key = colNames[ci] || col.label || col.id;
             obj[key] = row.c?.[ci]?.v ?? '';
           });
           return obj;
@@ -107,7 +111,7 @@
         return res;
       } catch (e) {
         clearTimeout(timer);
-        if (e.name === 'AbortError') throw new Error('요청 시간 초과 (15초). n8n 워크플로우가 활성 상태인지 확인하세요.');
+        if (e.name === 'AbortError') throw new Error('요청 시간 초과 (15초). 네트워크 상태를 확인하세요.');
         throw e;
       }
     };
@@ -145,33 +149,25 @@
     // ==========================================
 
     const exportMonthlyToExcel = (statements, year, month) => {
-      if (typeof XLSX === 'undefined') {
-        alert('SheetJS 라이브러리가 로드되지 않았습니다.');
-        return;
-      }
+      if (typeof XLSX === 'undefined') { alert('SheetJS 라이브러리가 로드되지 않았습니다.'); return; }
       const wb = XLSX.utils.book_new();
       const filtered = statements.filter(s =>
         String(s.연도) === String(year) && String(s.월) === String(month)
       );
-
-      // Sheet 1: 현장별 요약
       const summaryData = SITE_LIST.map(site => {
-        const siteStmts = filtered.filter(s => s.현장명 === site);
-        const submitted = siteStmts.length > 0;
+        const ss = filtered.filter(s => s.현장명 === site);
         return {
           '현장명': site,
-          '제출여부': submitted ? '제출완료' : '미제출',
-          '공종': [...new Set(siteStmts.map(s => s.공종))].join(', '),
-          '금회합계(원)': siteStmts.reduce((sum, s) => sum + parseAmount(s.금회기성), 0),
-          '제출자': siteStmts.map(s => s.이름).join(', '),
-          '업데이트일': siteStmts.map(s => s.업데이트).join(', ')
+          '제출여부': ss.length > 0 ? '제출완료' : '미제출',
+          '공종': [...new Set(ss.map(s => s.공종))].join(', '),
+          '금회합계(원)': ss.reduce((sum, s) => sum + parseAmount(s.금회기성), 0),
+          '제출자': ss.map(s => s.이름).join(', '),
+          '업데이트일': ss.map(s => s.업데이트).join(', ')
         };
       });
       const ws1 = XLSX.utils.json_to_sheet(summaryData);
       ws1['!cols'] = [{ wch: 26 }, { wch: 10 }, { wch: 22 }, { wch: 18 }, { wch: 15 }, { wch: 15 }];
       XLSX.utils.book_append_sheet(wb, ws1, `${year}년 ${month}월 현황`);
-
-      // Sheet 2: 원본 상세 데이터
       const detailData = filtered.map(s => ({
         '이름': s.이름, '직책': s.직책, '이메일': s.이메일, '현장명': s.현장명,
         '연도': s.연도, '월': s.월, '회차': s.회차, '공종': s.공종,
@@ -182,21 +178,17 @@
       if (detailData.length > 0) {
         const ws2 = XLSX.utils.json_to_sheet(detailData);
         ws2['!cols'] = [
-          { wch: 10 }, { wch: 10 }, { wch: 25 }, { wch: 26 }, { wch: 6 }, { wch: 4 },
+          { wch: 12 }, { wch: 12 }, { wch: 25 }, { wch: 26 }, { wch: 6 }, { wch: 4 },
           { wch: 5 }, { wch: 12 }, { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 16 },
           { wch: 16 }, { wch: 8 }, { wch: 14 }
         ];
         XLSX.utils.book_append_sheet(wb, ws2, `${year}년 ${month}월 상세`);
       }
-
       XLSX.writeFile(wb, `기성현황_${year}년_${month}월.xlsx`);
     };
 
     const exportAllToExcel = (statements) => {
-      if (typeof XLSX === 'undefined') {
-        alert('SheetJS 라이브러리가 로드되지 않았습니다.');
-        return;
-      }
+      if (typeof XLSX === 'undefined') { alert('SheetJS 라이브러리가 로드되지 않았습니다.'); return; }
       const wb = XLSX.utils.book_new();
       const allData = statements.map(s => ({
         '이름': s.이름, '직책': s.직책, '이메일': s.이메일, '현장명': s.현장명,
@@ -207,7 +199,7 @@
       }));
       const ws = XLSX.utils.json_to_sheet(allData);
       ws['!cols'] = [
-        { wch: 10 }, { wch: 10 }, { wch: 25 }, { wch: 26 }, { wch: 6 }, { wch: 4 },
+        { wch: 12 }, { wch: 12 }, { wch: 25 }, { wch: 26 }, { wch: 6 }, { wch: 4 },
         { wch: 5 }, { wch: 12 }, { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 16 },
         { wch: 16 }, { wch: 8 }, { wch: 14 }
       ];
@@ -216,7 +208,108 @@
     };
 
     // ==========================================
-    // 1. 보안설정 (관리자 전용) 컴포넌트
+    // 로그인 화면 컴포넌트 (신규)
+    // ==========================================
+    const LoginScreen = ({ onLogin, isLoading, error }) => {
+      const [id, setId]         = useState('');
+      const [password, setPassword] = useState('');
+      const [showPwd, setShowPwd]   = useState(false);
+
+      const handleSubmit = (e) => {
+        e.preventDefault();
+        if (id.trim() && password.trim()) onLogin(id.trim(), password.trim());
+      };
+
+      return (
+        <div className="min-h-screen bg-gradient-to-br from-slate-100 to-blue-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl p-8 max-w-sm w-full shadow-2xl border border-gray-100 animate-fade-in">
+
+            {/* 로고 영역 */}
+            <div className="text-center mb-8">
+              <div className="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center text-white font-extrabold text-3xl shadow-lg mx-auto mb-4">
+                H
+              </div>
+              <h1 className="text-2xl font-extrabold text-gray-900 tracking-tight">현장 소통 허브</h1>
+              <p className="text-sm text-gray-400 mt-1 font-medium">Field Hub — 기성 관리 시스템</p>
+            </div>
+
+            <form onSubmit={handleSubmit} className="space-y-4">
+              {/* 아이디 */}
+              <div>
+                <label className="block text-xs font-bold text-gray-600 mb-1.5">아이디</label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 material-symbols-outlined text-gray-400" style={{fontSize:'18px'}}>person</span>
+                  <input
+                    type="text"
+                    value={id}
+                    onChange={e => setId(e.target.value)}
+                    placeholder="아이디를 입력하세요"
+                    className="w-full border border-gray-300 pl-9 pr-4 py-3 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                    required
+                    autoFocus
+                    autoComplete="username"
+                  />
+                </div>
+              </div>
+
+              {/* 비밀번호 */}
+              <div>
+                <label className="block text-xs font-bold text-gray-600 mb-1.5">비밀번호</label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 material-symbols-outlined text-gray-400" style={{fontSize:'18px'}}>lock</span>
+                  <input
+                    type={showPwd ? 'text' : 'password'}
+                    value={password}
+                    onChange={e => setPassword(e.target.value)}
+                    placeholder="비밀번호를 입력하세요"
+                    className="w-full border border-gray-300 pl-9 pr-10 py-3 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                    required
+                    autoComplete="current-password"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPwd(v => !v)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700 transition-colors"
+                    tabIndex={-1}
+                  >
+                    <span className="material-symbols-outlined" style={{fontSize:'18px'}}>
+                      {showPwd ? 'visibility_off' : 'visibility'}
+                    </span>
+                  </button>
+                </div>
+              </div>
+
+              {/* 에러 메시지 */}
+              {error && (
+                <div className="bg-red-50 border border-red-100 text-red-600 p-3 rounded-xl text-xs font-medium flex items-start gap-2 animate-fade-in">
+                  <span className="material-symbols-outlined flex-shrink-0 mt-0.5" style={{fontSize:'16px'}}>error</span>
+                  <span>{error}</span>
+                </div>
+              )}
+
+              {/* 로그인 버튼 */}
+              <button
+                type="submit"
+                disabled={isLoading || !id.trim() || !password.trim()}
+                className="w-full py-3 mt-2 bg-blue-600 text-white rounded-xl font-bold shadow-lg shadow-blue-600/30 hover:bg-blue-700 active:bg-blue-800 transition-all disabled:opacity-50 flex justify-center items-center gap-2"
+              >
+                {isLoading
+                  ? <><span className="material-symbols-outlined animate-spin" style={{fontSize:'18px'}}>sync</span> 로그인 중...</>
+                  : <><span className="material-symbols-outlined" style={{fontSize:'18px'}}>login</span> 로그인</>
+                }
+              </button>
+            </form>
+
+            <p className="text-center text-[11px] text-gray-400 mt-6">
+              계정 문의는 관리자에게 연락하세요
+            </p>
+          </div>
+        </div>
+      );
+    };
+
+    // ==========================================
+    // 보안설정 (관리자 전용) 컴포넌트
     // ==========================================
     const SecurityTab = ({ contracts, setContracts, isAdmin, setIsPwdModalOpen }) => {
       const [selectedSite, setSelectedSite] = useState(SITE_LIST[0]);
@@ -284,16 +377,13 @@
     };
 
     // ==========================================
-    // 2. 월별 현황 탭 컴포넌트 (신규)
+    // 월별 현황 탭 컴포넌트
     // ==========================================
     const MonthlyTab = ({ statements, isLoading, loadError, isAdmin, setIsPwdModalOpen }) => {
       const currentYear  = new Date().getFullYear();
       const currentMonth = new Date().getMonth() + 1;
 
-      const yearsFromData = statements
-        .map(s => Number(s.연도))
-        .filter(y => y > 2000 && !isNaN(y));
-      const yearSet = new Set(yearsFromData);
+      const yearSet = new Set(statements.map(s => Number(s.연도)).filter(y => y > 2000 && !isNaN(y)));
       yearSet.add(currentYear);
       const years = [...yearSet].sort((a, b) => b - a);
 
@@ -304,10 +394,10 @@
         String(s.연도) === selectedYear && String(s.월) === selectedMonth
       );
 
-      const submittedCount = SITE_LIST.filter(site => filtered.some(s => s.현장명 === site)).length;
+      const submittedCount    = SITE_LIST.filter(site => filtered.some(s => s.현장명 === site)).length;
       const notSubmittedCount = SITE_LIST.length - submittedCount;
-      const totalAmount  = filtered.reduce((sum, s) => sum + parseAmount(s.금회기성), 0);
-      const submitPercent = SITE_LIST.length > 0 ? Math.round((submittedCount / SITE_LIST.length) * 100) : 0;
+      const totalAmount       = filtered.reduce((sum, s) => sum + parseAmount(s.금회기성), 0);
+      const submitPercent     = SITE_LIST.length > 0 ? Math.round((submittedCount / SITE_LIST.length) * 100) : 0;
 
       return (
         <div className="space-y-4 animate-fade-in">
@@ -319,18 +409,12 @@
               월별 제출 현황
             </h2>
             <div className="flex items-center gap-2 flex-wrap">
-              <select
-                value={selectedYear}
-                onChange={e => setSelectedYear(e.target.value)}
-                className="border border-gray-300 rounded-lg px-2 py-1.5 text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-              >
+              <select value={selectedYear} onChange={e => setSelectedYear(e.target.value)}
+                className="border border-gray-300 rounded-lg px-2 py-1.5 text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500 bg-white">
                 {years.map(y => <option key={y} value={y}>{y}년</option>)}
               </select>
-              <select
-                value={selectedMonth}
-                onChange={e => setSelectedMonth(e.target.value)}
-                className="border border-gray-300 rounded-lg px-2 py-1.5 text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-              >
+              <select value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)}
+                className="border border-gray-300 rounded-lg px-2 py-1.5 text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500 bg-white">
                 {[...Array(12)].map((_, i) => <option key={i+1} value={i+1}>{i+1}월</option>)}
               </select>
               <button
@@ -348,14 +432,10 @@
             <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
               <div className="text-xs font-bold text-gray-500 mb-1">제출완료</div>
               <div className="text-2xl font-extrabold text-green-600">
-                {submittedCount}
-                <span className="text-sm text-gray-400 font-normal">/{SITE_LIST.length}</span>
+                {submittedCount}<span className="text-sm text-gray-400 font-normal">/{SITE_LIST.length}</span>
               </div>
               <div className="w-full bg-gray-100 rounded-full h-1.5 mt-2">
-                <div
-                  className="bg-green-500 h-1.5 rounded-full transition-all duration-500"
-                  style={{width: `${submitPercent}%`}}
-                ></div>
+                <div className="bg-green-500 h-1.5 rounded-full transition-all duration-500" style={{width: `${submitPercent}%`}}></div>
               </div>
               <div className="text-[10px] text-gray-400 mt-1">{submitPercent}% 제출</div>
             </div>
@@ -366,24 +446,20 @@
             </div>
             <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
               <div className="text-xs font-bold text-gray-500 mb-1">금회합계</div>
-              <div className="text-sm font-extrabold text-blue-700 mt-1 break-all">
+              <div className="text-sm font-extrabold mt-1">
                 {isAdmin
-                  ? `₩${totalAmount.toLocaleString()}`
-                  : <span className="flex items-center gap-1 text-gray-400">
+                  ? <span className="text-blue-700">₩{totalAmount.toLocaleString()}</span>
+                  : <button onClick={() => setIsPwdModalOpen(true)} className="flex items-center gap-1 text-gray-400 text-xs hover:text-blue-600 transition-colors">
                       <span className="material-symbols-outlined" style={{fontSize:'14px'}}>lock</span>
-                      관리자 전용
-                    </span>
+                      금액 확인
+                    </button>
                 }
               </div>
-              <div className="text-[10px] text-gray-400 mt-1">
-                {!isAdmin && (
-                  <button onClick={() => setIsPwdModalOpen(true)} className="underline text-blue-500 hover:text-blue-700">금액 확인하기</button>
-                )}
-              </div>
+              <div className="text-[10px] text-gray-400 mt-1">합산 금회기성</div>
             </div>
           </div>
 
-          {/* 로딩 / 에러 / 현장 그리드 */}
+          {/* 현장 그리드 */}
           {isLoading ? (
             <div className="text-center p-14 text-gray-400 font-medium flex flex-col items-center gap-3">
               <span className="material-symbols-outlined animate-spin text-4xl text-blue-400">sync</span>
@@ -400,23 +476,14 @@
                 const submitted = siteStmts.length > 0;
                 const categories = [...new Set(siteStmts.map(s => s.공종))];
                 const siteTotal  = siteStmts.reduce((sum, s) => sum + parseAmount(s.금회기성), 0);
-
                 return (
-                  <div
-                    key={site}
-                    className={`p-3 rounded-xl border transition-all ${submitted ? 'bg-green-50 border-green-200' : 'bg-gray-50 border-gray-200'}`}
-                  >
+                  <div key={site} className={`p-3 rounded-xl border transition-all ${submitted ? 'bg-green-50 border-green-200' : 'bg-gray-50 border-gray-200'}`}>
                     <div className="flex items-start gap-2">
-                      <span
-                        className={`material-symbols-outlined flex-shrink-0 mt-0.5 ${submitted ? 'text-green-500' : 'text-gray-300'}`}
-                        style={{fontSize:'18px'}}
-                      >
+                      <span className={`material-symbols-outlined flex-shrink-0 mt-0.5 ${submitted ? 'text-green-500' : 'text-gray-300'}`} style={{fontSize:'18px'}}>
                         {submitted ? 'check_circle' : 'radio_button_unchecked'}
                       </span>
                       <div className="flex-1 min-w-0">
-                        <div className={`text-xs font-bold leading-tight truncate ${submitted ? 'text-green-900' : 'text-gray-500'}`}>
-                          {site}
-                        </div>
+                        <div className={`text-xs font-bold leading-tight truncate ${submitted ? 'text-green-900' : 'text-gray-500'}`}>{site}</div>
                         {submitted ? (
                           <div className="mt-1.5 space-y-1">
                             <div className="flex flex-wrap gap-1">
@@ -424,11 +491,7 @@
                                 <span key={cat} className="text-[10px] px-1.5 py-0.5 bg-green-200 text-green-800 rounded font-bold">{cat}</span>
                               ))}
                             </div>
-                            {isAdmin && (
-                              <div className="text-[10px] text-green-700 font-bold">
-                                ₩{siteTotal.toLocaleString()}
-                              </div>
-                            )}
+                            {isAdmin && <div className="text-[10px] text-green-700 font-bold">₩{siteTotal.toLocaleString()}</div>}
                           </div>
                         ) : (
                           <div className="text-[10px] text-gray-400 mt-1">미제출</div>
@@ -445,7 +508,7 @@
     };
 
     // ==========================================
-    // 3. 기성내역서 탭 컴포넌트
+    // 기성내역서 탭 컴포넌트
     // ==========================================
     const StatementsTab = ({
       statements, isLoading, isRefreshing, loadError, lastUpdated, loadData,
@@ -453,8 +516,8 @@
     }) => {
       const [isFormModalOpen, setIsFormModalOpen] = useState(false);
       const [editingRowIndex, setEditingRowIndex] = useState(null);
-      const [errorMsg, setErrorMsg]         = useState(null);
-      const [isSubmitting, setIsSubmitting] = useState(false);
+      const [errorMsg, setErrorMsg]               = useState(null);
+      const [isSubmitting, setIsSubmitting]       = useState(false);
 
       const [newForm, setNewForm] = useState({
         year: String(new Date().getFullYear()),
@@ -467,16 +530,15 @@
         setIsSubmitting(true);
         setErrorMsg(null);
 
-        const isEditing    = editingRowIndex !== null;
-        const url          = isEditing ? WEBHOOK_EDIT_URL : WEBHOOK_LOAD_URL;
-        const curAmount    = parseAmount(newForm.amount);
-        const prevAmount   = parseAmount(newForm.prevAmount);
-        const totalContract = contracts[currentUser.siteName] || 0;
-        const cumulative   = prevAmount + curAmount;
-        const remaining    = totalContract - cumulative;
-        const rate         = totalContract > 0 ? (cumulative / totalContract) * 100 : 0;
-
-        const uniqueCode = `${currentUser.siteName}_${newForm.year}년_${newForm.month}월_${newForm.round}회차_${newForm.category}`.replace(/\s/g, '');
+        const isEditing      = editingRowIndex !== null;
+        const url            = isEditing ? WEBHOOK_EDIT_URL : WEBHOOK_LOAD_URL;
+        const curAmount      = parseAmount(newForm.amount);
+        const prevAmount     = parseAmount(newForm.prevAmount);
+        const totalContract  = contracts[currentUser.siteName] || 0;
+        const cumulative     = prevAmount + curAmount;
+        const remaining      = totalContract - cumulative;
+        const rate           = totalContract > 0 ? (cumulative / totalContract) * 100 : 0;
+        const uniqueCode     = `${currentUser.siteName}_${newForm.year}년_${newForm.month}월_${newForm.round}회차_${newForm.category}`.replace(/\s/g, '');
 
         const payload = {
           action: isEditing ? 'edit' : 'submit',
@@ -501,44 +563,24 @@
           }
         };
 
-        console.log('[submit] 전송 URL:', url);
-        console.log('[submit] 페이로드:', JSON.stringify(payload, null, 2));
-
         try {
           const res = await fetchWithTimeout(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Accept': 'application/json, text/plain, */*' },
             body: JSON.stringify(payload)
           });
-
           if (!res.ok) {
             const errText = await res.text().catch(() => '');
             throw new Error(`HTTP ${res.status}${errText ? ' — ' + errText.slice(0, 120) : ''}`);
           }
-
-          const responseText = await res.text();
-          console.log('[submit] 응답:', responseText.slice(0, 300));
-
           setIsFormModalOpen(false);
           setEditingRowIndex(null);
-          setNewForm({
-            year: String(new Date().getFullYear()),
-            month: String(new Date().getMonth() + 1),
-            round: '1', category: '기계', amount: '', prevAmount: ''
-          });
+          setNewForm({ year: String(new Date().getFullYear()), month: String(new Date().getMonth() + 1), round: '1', category: '기계', amount: '', prevAmount: '' });
           await loadData(true);
-
         } catch (e) {
-          console.error('[submit] 오류:', e.message);
-          const isNetworkError = e.message.includes('Failed to fetch')
-            || e.message.includes('NetworkError')
-            || e.message.includes('시간 초과');
+          const isNetworkError = e.message.includes('Failed to fetch') || e.message.includes('NetworkError') || e.message.includes('시간 초과');
           if (isNetworkError) {
-            setErrorMsg({
-              title: '서버 연결 실패',
-              desc: 'n8n 워크플로우가 "테스트 실행" 중인지 확인하거나, 브라우저 보안 차단을 해제해주세요.',
-              link: url
-            });
+            setErrorMsg({ title: '서버 연결 실패', desc: 'n8n 워크플로우가 "테스트 실행" 중인지 확인하거나, 브라우저 보안 차단을 해제해주세요.', link: url });
           } else {
             setErrorMsg({ title: '저장 실패', desc: e.message });
           }
@@ -569,49 +611,29 @@
                 <p className="text-[10px] text-gray-400 mt-0.5 ml-7">마지막 업데이트: {lastUpdatedStr}</p>
               )}
             </div>
-
             <div className="flex gap-2 items-center flex-wrap justify-end">
-              <button
-                onClick={() => isAdmin ? setIsAdmin(false) : setIsPwdModalOpen(true)}
-                className="px-3 py-2 text-sm border border-gray-300 rounded-lg flex items-center gap-1 hover:bg-gray-50 transition-colors"
-              >
+              <button onClick={() => isAdmin ? setIsAdmin(false) : setIsPwdModalOpen(true)}
+                className="px-3 py-2 text-sm border border-gray-300 rounded-lg flex items-center gap-1 hover:bg-gray-50 transition-colors">
                 <span className="material-symbols-outlined" style={{fontSize:'16px'}}>{isAdmin ? 'lock_open' : 'lock'}</span>
                 {isAdmin ? '금액 숨기기' : '금액 확인'}
               </button>
-
-              <button
-                onClick={() => loadData(true)}
-                disabled={isRefreshing || isLoading}
-                title="구글 시트에서 최신 데이터 불러오기"
-                className="px-3 py-2 text-sm border border-gray-300 rounded-lg flex items-center gap-1 hover:bg-gray-50 transition-colors disabled:opacity-40"
-              >
+              <button onClick={() => loadData(true)} disabled={isRefreshing || isLoading}
+                className="px-3 py-2 text-sm border border-gray-300 rounded-lg flex items-center gap-1 hover:bg-gray-50 transition-colors disabled:opacity-40">
                 <span className={`material-symbols-outlined ${isRefreshing ? 'animate-spin' : ''}`} style={{fontSize:'16px'}}>refresh</span>
                 {isRefreshing ? '로딩...' : '새로고침'}
               </button>
-
-              <button
-                onClick={() => exportAllToExcel(statements)}
-                disabled={isLoading || statements.length === 0}
-                title="전체 데이터를 엑셀로 다운로드"
-                className="px-3 py-2 text-sm bg-emerald-600 text-white rounded-lg flex items-center gap-1 hover:bg-emerald-700 transition-colors disabled:opacity-40 shadow-sm font-bold"
-              >
+              <button onClick={() => exportAllToExcel(statements)} disabled={isLoading || statements.length === 0}
+                className="px-3 py-2 text-sm bg-emerald-600 text-white rounded-lg flex items-center gap-1 hover:bg-emerald-700 transition-colors disabled:opacity-40 shadow-sm font-bold">
                 <span className="material-symbols-outlined" style={{fontSize:'16px'}}>download</span>
                 전체 엑셀
               </button>
-
-              <button
-                onClick={() => {
+              <button onClick={() => {
                   setEditingRowIndex(null);
-                  setNewForm({
-                    year: String(new Date().getFullYear()),
-                    month: String(new Date().getMonth() + 1),
-                    round: '1', category: '기계', amount: '', prevAmount: ''
-                  });
+                  setNewForm({ year: String(new Date().getFullYear()), month: String(new Date().getMonth() + 1), round: '1', category: '기계', amount: '', prevAmount: '' });
                   setErrorMsg(null);
                   setIsFormModalOpen(true);
                 }}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-bold shadow hover:bg-blue-700 transition-colors"
-              >
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-bold shadow hover:bg-blue-700 transition-colors">
                 + 새 기성 등록
               </button>
             </div>
@@ -676,22 +698,20 @@
                   <div className="flex items-center gap-3 ml-4 border-l pl-4 border-gray-100 shrink-0">
                     <ProgressCircle percent={parseFloat(s.기성률 || 0)} />
                     {s.이메일 === currentUser.email && (
-                      <button
-                        onClick={() => {
+                      <button onClick={() => {
                           setEditingRowIndex(s._rowIndex ?? idx + 2);
                           setNewForm({
-                            year:     String(s.연도  || new Date().getFullYear()),
-                            month:    String(s.월    || 1),
-                            round:    String(s.회차  || 1),
+                            year: String(s.연도 || new Date().getFullYear()),
+                            month: String(s.월 || 1),
+                            round: String(s.회차 || 1),
                             category: s.공종 || '기계',
-                            amount:   parseAmount(s.금회기성) > 0 ? parseAmount(s.금회기성).toLocaleString() : '',
+                            amount: parseAmount(s.금회기성) > 0 ? parseAmount(s.금회기성).toLocaleString() : '',
                             prevAmount: parseAmount(s.전회기성) > 0 ? parseAmount(s.전회기성).toLocaleString() : ''
                           });
                           setErrorMsg(null);
                           setIsFormModalOpen(true);
                         }}
-                        className="text-gray-400 hover:text-blue-600 transition-colors p-1"
-                      >
+                        className="text-gray-400 hover:text-blue-600 transition-colors p-1">
                         <span className="material-symbols-outlined">edit_note</span>
                       </button>
                     )}
@@ -716,9 +736,7 @@
                     <span className="material-symbols-outlined">close</span>
                   </button>
                 </div>
-
                 <form onSubmit={handleFormSubmit} className="space-y-5">
-
                   <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
                     <div className="flex items-center justify-center gap-2 mb-3">
                       <span className="material-symbols-outlined text-gray-500" style={{fontSize:'18px'}}>calendar_month</span>
@@ -733,8 +751,7 @@
                       </div>
                       <div className="text-center">
                         <label className="block text-[10px] text-gray-500 mb-1 font-medium">월</label>
-                        <select value={newForm.month}
-                          onChange={e => setNewForm({...newForm, month: e.target.value})}
+                        <select value={newForm.month} onChange={e => setNewForm({...newForm, month: e.target.value})}
                           className="w-full border border-gray-300 p-2 rounded-lg text-sm text-center font-bold focus:ring-2 focus:ring-blue-500 outline-none">
                           {[...Array(12)].map((_, i) => <option key={i+1} value={i+1}>{i+1}월</option>)}
                         </select>
@@ -750,20 +767,17 @@
                       </div>
                     </div>
                   </div>
-
                   <div>
                     <label className="block text-[11px] font-bold text-gray-600 mb-1">공종 (카테고리)</label>
-                    <select value={newForm.category}
-                      onChange={e => setNewForm({...newForm, category: e.target.value})}
+                    <select value={newForm.category} onChange={e => setNewForm({...newForm, category: e.target.value})}
                       className="w-full border border-gray-300 p-2.5 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none">
                       <option>기계</option><option>소방</option><option>소방(기계)</option><option>소방(전기)</option>
                     </select>
                   </div>
-
                   <div>
                     <label className="block text-[11px] font-bold text-gray-400 mb-1 flex justify-between">
                       <span>현장 전체 계약금액</span>
-                      <span className="text-[9px] text-gray-400 font-normal">※ 보안설정 탭에서 변경 가능</span>
+                      <span className="text-[9px] text-gray-400 font-normal">※ DB정보 기준 자동 적용</span>
                     </label>
                     <input type="text" readOnly
                       value={contracts[currentUser.siteName]
@@ -771,7 +785,6 @@
                         : '설정되지 않음'}
                       className="w-full border border-gray-200 p-2.5 rounded-lg text-sm font-bold bg-gray-100 text-gray-500 cursor-not-allowed outline-none" />
                   </div>
-
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="block text-[11px] font-bold text-gray-600 mb-1">전회까지 누계기성</label>
@@ -786,14 +799,10 @@
                         className="w-full border-2 border-blue-200 bg-blue-50/30 p-2.5 rounded-lg text-sm font-bold text-blue-700 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none" required />
                     </div>
                   </div>
-
                   <div className="bg-blue-50 p-3 rounded-lg border border-blue-100 flex items-center justify-between">
                     <span className="text-[11px] text-blue-500 font-bold">한글 금액 (금회)</span>
-                    <span className="text-sm font-bold text-blue-800">
-                      {numberToKorean(parseAmount(newForm.amount)) || '0 원'}
-                    </span>
+                    <span className="text-sm font-bold text-blue-800">{numberToKorean(parseAmount(newForm.amount)) || '0 원'}</span>
                   </div>
-
                   {errorMsg && (
                     <div className="bg-red-50 text-red-600 p-4 rounded-lg text-xs border border-red-100 flex flex-col gap-2 animate-fade-in">
                       <div className="font-bold flex items-center gap-1.5">
@@ -810,7 +819,6 @@
                       )}
                     </div>
                   )}
-
                   <button type="submit" disabled={isSubmitting}
                     className="w-full py-3 mt-2 bg-blue-600 text-white rounded-xl font-bold shadow-lg shadow-blue-600/30 hover:bg-blue-700 transition-all disabled:opacity-50 flex justify-center items-center gap-2">
                     {isSubmitting
@@ -830,20 +838,95 @@
     // 메인 앱 컨테이너
     // ==========================================
     const App = () => {
-      const [user]     = useState({ name: '관리자', email: 'admin@test.com', siteName: '모아 평택고덕', role: '마스터' });
-      const [activeTab, setActiveTab]           = useState('statements');
-      const [isAdmin, setIsAdmin]               = useState(false);
-      const [isPwdModalOpen, setIsPwdModalOpen] = useState(false);
-      const [pwdInput, setPwdInput]             = useState('');
-      const [contracts, setContracts]           = useState({});
+      // ---- 로그인 상태 ----
+      const [isLoggedIn,     setIsLoggedIn]     = useState(false);
+      const [currentUser,    setCurrentUser]    = useState(null);
+      const [isLoginLoading, setIsLoginLoading] = useState(false);
+      const [loginError,     setLoginError]     = useState(null);
 
-      // 공유 데이터 상태 (StatementsTab → App으로 리프팅)
-      const [statements, setStatements]   = useState([]);
-      const [isLoading, setIsLoading]     = useState(true);
+      // ---- 앱 상태 ----
+      const [activeTab,       setActiveTab]       = useState('statements');
+      const [isAdmin,         setIsAdmin]         = useState(false);
+      const [isPwdModalOpen,  setIsPwdModalOpen]  = useState(false);
+      const [pwdInput,        setPwdInput]        = useState('');
+      const [contracts,       setContracts]       = useState({});
+
+      // ---- 공유 데이터 상태 ----
+      const [statements,   setStatements]   = useState([]);
+      const [isLoading,    setIsLoading]    = useState(false);
       const [isRefreshing, setIsRefreshing] = useState(false);
-      const [loadError, setLoadError]     = useState(null);
-      const [lastUpdated, setLastUpdated] = useState(null);
+      const [loadError,    setLoadError]    = useState(null);
+      const [lastUpdated,  setLastUpdated]  = useState(null);
 
+      // ==========================================
+      // 로그인 처리: DB정보 시트에서 ID·비밀번호 대조
+      // ==========================================
+      const handleLogin = async (id, password) => {
+        setIsLoginLoading(true);
+        setLoginError(null);
+
+        try {
+          const res = await fetchWithTimeout(DB_SHEETS_URL, { method: 'GET' });
+          if (!res.ok) throw new Error(`HTTP ${res.status} — DB 시트에 접근할 수 없습니다. 시트 공유 설정을 확인하세요.`);
+
+          const text = await res.text();
+          console.log('[login] DB정보 응답 (앞 300자):', text.slice(0, 300));
+
+          const users = parseGSheetResponse(text, DB_COL_NAMES);
+          console.log('[login] DB 계정 수:', users.length);
+
+          const matched = users.find(u =>
+            String(u['ID'] ?? '').trim() === id &&
+            String(u['비밀번호'] ?? '').trim() === password
+          );
+
+          if (!matched) throw new Error('아이디 또는 비밀번호가 일치하지 않습니다.');
+
+          const userObj = {
+            id:             String(matched['ID']).trim(),
+            name:           String(matched['ID']).trim(),
+            email:          String(matched['ID']).trim(),  // 내 기록 편집 식별자로 사용
+            siteName:       String(matched['현장명'] ?? '').trim(),
+            company:        String(matched['회사'] ?? '').trim(),
+            role:           String(matched['회사'] ?? '').trim(),
+            contractAmount: parseAmount(matched['계약금액'])
+          };
+
+          console.log('[login] 로그인 성공:', userObj.id, '/', userObj.siteName);
+
+          // DB정보의 계약금액을 contracts에 즉시 반영
+          if (userObj.siteName) {
+            setContracts({ [userObj.siteName]: userObj.contractAmount });
+          }
+          setCurrentUser(userObj);
+          setIsLoggedIn(true);
+
+        } catch (e) {
+          console.error('[login] 실패:', e.message);
+          setLoginError(e.message);
+        } finally {
+          setIsLoginLoading(false);
+        }
+      };
+
+      // ==========================================
+      // 로그아웃
+      // ==========================================
+      const handleLogout = () => {
+        setIsLoggedIn(false);
+        setCurrentUser(null);
+        setStatements([]);
+        setContracts({});
+        setActiveTab('statements');
+        setIsAdmin(false);
+        setLoadError(null);
+        setLastUpdated(null);
+        setLoginError(null);
+      };
+
+      // ==========================================
+      // 기성리스트 데이터 로드
+      // ==========================================
       const loadData = useCallback(async (isManualRefresh = false) => {
         if (isManualRefresh) setIsRefreshing(true);
         else setIsLoading(true);
@@ -851,20 +934,18 @@
 
         try {
           const res = await fetchWithTimeout(SHEETS_URL, { method: 'GET' });
-
-          if (!res.ok) {
-            throw new Error(`HTTP ${res.status} — Google Sheets 접근 실패. 시트가 공개(링크로 볼 수 있음)로 설정되어 있는지 확인하세요.`);
-          }
+          if (!res.ok) throw new Error(`HTTP ${res.status} — Google Sheets 접근 실패. 시트가 공개(링크로 볼 수 있음)로 설정되어 있는지 확인하세요.`);
 
           const text = await res.text();
-          console.log('[loadData] Google Sheets 응답 (앞 300자):', text.slice(0, 300));
+          console.log('[loadData] 응답 (앞 300자):', text.slice(0, 300));
 
-          const dataWithIds = parseGSheetResponse(text);
-          console.log('[loadData] 파싱된 행 수:', dataWithIds.length, '/ 첫 행 샘플:', dataWithIds[0]);
+          const dataWithIds = parseGSheetResponse(text, COL_NAMES);
+          console.log('[loadData] 파싱된 행 수:', dataWithIds.length);
 
           setStatements(dataWithIds);
           setLastUpdated(new Date());
 
+          // 기성리스트의 계약금액도 병합 (DB정보 값이 prev에 있으면 DB값 우선 유지)
           const loadedContracts = {};
           dataWithIds.forEach(item => {
             if (item.현장명 && item.계약금액) {
@@ -882,44 +963,62 @@
         }
       }, []);
 
-      useEffect(() => { loadData(false); }, [loadData]);
+      // 로그인 성공 후 데이터 자동 로드
+      useEffect(() => {
+        if (isLoggedIn) loadData(false);
+      }, [isLoggedIn, loadData]);
 
+      // ==========================================
+      // 로그인 전: 로그인 화면 표시
+      // ==========================================
+      if (!isLoggedIn) {
+        return <LoginScreen onLogin={handleLogin} isLoading={isLoginLoading} error={loginError} />;
+      }
+
+      // ==========================================
+      // 로그인 후: 메인 앱
+      // ==========================================
       return (
         <div className="max-w-3xl mx-auto p-4 sm:p-6 pb-20">
+
+          {/* 헤더 */}
           <header className="flex justify-between items-center mb-6 bg-white p-5 rounded-2xl shadow-sm border border-gray-200">
             <div className="flex items-center gap-3">
               <div className="w-11 h-11 bg-blue-600 rounded-xl flex items-center justify-center text-white font-bold text-xl shadow-inner">H</div>
               <div>
                 <h1 className="text-lg font-extrabold text-gray-900 tracking-tight leading-tight">현장 소통 허브</h1>
-                <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Field Hub v2.3</p>
+                <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Field Hub v2.4</p>
               </div>
             </div>
             <div className="text-right">
-              <p className="text-sm font-bold text-gray-800">{user.siteName}</p>
-              <p className="text-[11px] text-blue-600 font-bold bg-blue-50 inline-block px-2 py-0.5 rounded mt-1">{user.name} {user.role}</p>
+              <p className="text-sm font-bold text-gray-800">{currentUser.siteName}</p>
+              <p className="text-[11px] text-blue-600 font-bold bg-blue-50 inline-block px-2 py-0.5 rounded mt-0.5">
+                {currentUser.id} · {currentUser.company}
+              </p>
+              <button
+                onClick={handleLogout}
+                className="flex items-center gap-0.5 text-[10px] text-gray-400 hover:text-red-500 transition-colors mt-1 ml-auto"
+              >
+                <span className="material-symbols-outlined" style={{fontSize:'13px'}}>logout</span>
+                로그아웃
+              </button>
             </div>
           </header>
 
-          {/* 탭 3개 — max-w-lg로 확대 */}
+          {/* 탭 3개 */}
           <div className="flex space-x-1.5 bg-gray-200/70 p-1.5 rounded-xl mb-6 w-full max-w-lg mx-auto sm:mx-0">
-            <button
-              onClick={() => setActiveTab('statements')}
-              className={`flex-1 py-2 text-[12px] font-bold rounded-lg transition-all flex justify-center items-center gap-1 ${activeTab === 'statements' ? 'bg-white text-blue-600 shadow' : 'text-gray-500 hover:text-gray-800'}`}
-            >
+            <button onClick={() => setActiveTab('statements')}
+              className={`flex-1 py-2 text-[12px] font-bold rounded-lg transition-all flex justify-center items-center gap-1 ${activeTab === 'statements' ? 'bg-white text-blue-600 shadow' : 'text-gray-500 hover:text-gray-800'}`}>
               <span className="material-symbols-outlined" style={{fontSize:'16px'}}>receipt_long</span>
               기성내역서
             </button>
-            <button
-              onClick={() => setActiveTab('monthly')}
-              className={`flex-1 py-2 text-[12px] font-bold rounded-lg transition-all flex justify-center items-center gap-1 ${activeTab === 'monthly' ? 'bg-white text-blue-600 shadow' : 'text-gray-500 hover:text-gray-800'}`}
-            >
+            <button onClick={() => setActiveTab('monthly')}
+              className={`flex-1 py-2 text-[12px] font-bold rounded-lg transition-all flex justify-center items-center gap-1 ${activeTab === 'monthly' ? 'bg-white text-blue-600 shadow' : 'text-gray-500 hover:text-gray-800'}`}>
               <span className="material-symbols-outlined" style={{fontSize:'16px'}}>calendar_month</span>
               월별현황
             </button>
-            <button
-              onClick={() => setActiveTab('security')}
-              className={`flex-1 py-2 text-[12px] font-bold rounded-lg transition-all flex justify-center items-center gap-1 ${activeTab === 'security' ? 'bg-white text-blue-600 shadow' : 'text-gray-500 hover:text-gray-800'}`}
-            >
+            <button onClick={() => setActiveTab('security')}
+              className={`flex-1 py-2 text-[12px] font-bold rounded-lg transition-all flex justify-center items-center gap-1 ${activeTab === 'security' ? 'bg-white text-blue-600 shadow' : 'text-gray-500 hover:text-gray-800'}`}>
               <span className="material-symbols-outlined" style={{fontSize:'16px'}}>lock</span>
               보안설정
             </button>
@@ -934,7 +1033,7 @@
                 loadError={loadError}
                 lastUpdated={lastUpdated}
                 loadData={loadData}
-                currentUser={user}
+                currentUser={currentUser}
                 contracts={contracts}
                 setContracts={setContracts}
                 isAdmin={isAdmin}
@@ -961,6 +1060,7 @@
             )}
           </main>
 
+          {/* 관리자 인증 모달 */}
           {isPwdModalOpen && (
             <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] p-4 backdrop-blur-sm animate-fade-in">
               <div className="bg-white rounded-2xl p-6 max-w-xs w-full shadow-2xl border border-gray-100">
@@ -976,7 +1076,7 @@
                       else alert('비밀번호가 틀렸습니다.');
                     }
                   }}
-                  placeholder="비밀번호를 입력하세요"
+                  placeholder="관리자 비밀번호"
                   className="w-full border border-gray-300 p-2.5 rounded-lg mb-5 text-sm outline-none focus:ring-2 focus:ring-blue-500"
                   autoFocus />
                 <div className="flex gap-2">
