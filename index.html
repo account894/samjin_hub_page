@@ -9,6 +9,7 @@
   <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <style>
     .material-symbols-outlined { display: inline-flex; align-items: center; justify-content: center; vertical-align: middle; }
     @keyframes fadeIn { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: translateY(0); } }
@@ -36,8 +37,15 @@
     const SHEET_ID   = '1K3X7vKsm21Bt9kIro8JpYcZmBU03nT7l5ipgsU6JAw4';
     const SHEET_NAME = '기성리스트';
     const SHEETS_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(SHEET_NAME)}&headers=1`;
-    // A열~P열 순서대로 컬럼명 (고유코드 추가)
     const COL_NAMES  = ['이름','직책','이메일','현장명','연도','월','회차','공종','계약금액','전회기성','금회기성','누계기성','잔여금액','기성률','업데이트','고유코드'];
+
+    const SITE_LIST = [
+      '모아 평택고덕', '미추1구역', '중흥 경기송정', '제일 고양장항', '제일 인천계양',
+      '제일 원하도급율적용', '삼진 최초견적', '라인 파주운정', '라인 충북혁신',
+      '라인 대덕구 신청사', '인천 송도(RM5BL) 공동주택', '양주역 3차',
+      '영무 아양지구', '영무 군산일곡근린', '안성당왕 영무',
+      '함평미르채센텀 주상복합', '화성 동탄', '유탑 강릉'
+    ];
 
     // ==========================================
     // 유틸리티 함수
@@ -81,7 +89,7 @@
       return rows
         .filter(row => row.c && row.c.some(cell => cell?.v != null))
         .map((row, idx) => {
-          const obj = { _rowIndex: idx + 2 }; 
+          const obj = { _rowIndex: idx + 2 };
           cols.forEach((col, ci) => {
             const key = COL_NAMES[ci] || col.label || col.id;
             obj[key] = row.c?.[ci]?.v ?? '';
@@ -132,13 +140,80 @@
       );
     };
 
-    const SITE_LIST = [
-      '모아 평택고덕', '미추1구역', '중흥 경기송정', '제일 고양장항', '제일 인천계양',
-      '제일 원하도급율적용', '삼진 최초견적', '라인 파주운정', '라인 충북혁신',
-      '라인 대덕구 신청사', '인천 송도(RM5BL) 공동주택', '양주역 3차',
-      '영무 아양지구', '영무 군산일곡근린', '안성당왕 영무',
-      '함평미르채센텀 주상복합', '화성 동탄', '유탑 강릉'
-    ];
+    // ==========================================
+    // 엑셀 다운로드 함수
+    // ==========================================
+
+    const exportMonthlyToExcel = (statements, year, month) => {
+      if (typeof XLSX === 'undefined') {
+        alert('SheetJS 라이브러리가 로드되지 않았습니다.');
+        return;
+      }
+      const wb = XLSX.utils.book_new();
+      const filtered = statements.filter(s =>
+        String(s.연도) === String(year) && String(s.월) === String(month)
+      );
+
+      // Sheet 1: 현장별 요약
+      const summaryData = SITE_LIST.map(site => {
+        const siteStmts = filtered.filter(s => s.현장명 === site);
+        const submitted = siteStmts.length > 0;
+        return {
+          '현장명': site,
+          '제출여부': submitted ? '제출완료' : '미제출',
+          '공종': [...new Set(siteStmts.map(s => s.공종))].join(', '),
+          '금회합계(원)': siteStmts.reduce((sum, s) => sum + parseAmount(s.금회기성), 0),
+          '제출자': siteStmts.map(s => s.이름).join(', '),
+          '업데이트일': siteStmts.map(s => s.업데이트).join(', ')
+        };
+      });
+      const ws1 = XLSX.utils.json_to_sheet(summaryData);
+      ws1['!cols'] = [{ wch: 26 }, { wch: 10 }, { wch: 22 }, { wch: 18 }, { wch: 15 }, { wch: 15 }];
+      XLSX.utils.book_append_sheet(wb, ws1, `${year}년 ${month}월 현황`);
+
+      // Sheet 2: 원본 상세 데이터
+      const detailData = filtered.map(s => ({
+        '이름': s.이름, '직책': s.직책, '이메일': s.이메일, '현장명': s.현장명,
+        '연도': s.연도, '월': s.월, '회차': s.회차, '공종': s.공종,
+        '계약금액': parseAmount(s.계약금액), '전회기성': parseAmount(s.전회기성),
+        '금회기성': parseAmount(s.금회기성), '누계기성': parseAmount(s.누계기성),
+        '잔여금액': parseAmount(s.잔여금액), '기성률': s.기성률, '업데이트': s.업데이트
+      }));
+      if (detailData.length > 0) {
+        const ws2 = XLSX.utils.json_to_sheet(detailData);
+        ws2['!cols'] = [
+          { wch: 10 }, { wch: 10 }, { wch: 25 }, { wch: 26 }, { wch: 6 }, { wch: 4 },
+          { wch: 5 }, { wch: 12 }, { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 16 },
+          { wch: 16 }, { wch: 8 }, { wch: 14 }
+        ];
+        XLSX.utils.book_append_sheet(wb, ws2, `${year}년 ${month}월 상세`);
+      }
+
+      XLSX.writeFile(wb, `기성현황_${year}년_${month}월.xlsx`);
+    };
+
+    const exportAllToExcel = (statements) => {
+      if (typeof XLSX === 'undefined') {
+        alert('SheetJS 라이브러리가 로드되지 않았습니다.');
+        return;
+      }
+      const wb = XLSX.utils.book_new();
+      const allData = statements.map(s => ({
+        '이름': s.이름, '직책': s.직책, '이메일': s.이메일, '현장명': s.현장명,
+        '연도': s.연도, '월': s.월, '회차': s.회차, '공종': s.공종,
+        '계약금액': parseAmount(s.계약금액), '전회기성': parseAmount(s.전회기성),
+        '금회기성': parseAmount(s.금회기성), '누계기성': parseAmount(s.누계기성),
+        '잔여금액': parseAmount(s.잔여금액), '기성률': s.기성률, '업데이트': s.업데이트
+      }));
+      const ws = XLSX.utils.json_to_sheet(allData);
+      ws['!cols'] = [
+        { wch: 10 }, { wch: 10 }, { wch: 25 }, { wch: 26 }, { wch: 6 }, { wch: 4 },
+        { wch: 5 }, { wch: 12 }, { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 16 },
+        { wch: 16 }, { wch: 8 }, { wch: 14 }
+      ];
+      XLSX.utils.book_append_sheet(wb, ws, '전체 기성 데이터');
+      XLSX.writeFile(wb, `전체_기성현황_${new Date().toISOString().split('T')[0]}.xlsx`);
+    };
 
     // ==========================================
     // 1. 보안설정 (관리자 전용) 컴포넌트
@@ -209,64 +284,183 @@
     };
 
     // ==========================================
-    // 2. 기성내역서 탭 컴포넌트
+    // 2. 월별 현황 탭 컴포넌트 (신규)
     // ==========================================
-    const StatementsTab = ({ currentUser, contracts, setContracts, isAdmin, setIsAdmin, setIsPwdModalOpen }) => {
-      const [statements, setStatements]     = useState([]);
+    const MonthlyTab = ({ statements, isLoading, loadError, isAdmin, setIsPwdModalOpen }) => {
+      const currentYear  = new Date().getFullYear();
+      const currentMonth = new Date().getMonth() + 1;
+
+      const yearsFromData = statements
+        .map(s => Number(s.연도))
+        .filter(y => y > 2000 && !isNaN(y));
+      const yearSet = new Set(yearsFromData);
+      yearSet.add(currentYear);
+      const years = [...yearSet].sort((a, b) => b - a);
+
+      const [selectedYear,  setSelectedYear]  = useState(String(currentYear));
+      const [selectedMonth, setSelectedMonth] = useState(String(currentMonth));
+
+      const filtered = statements.filter(s =>
+        String(s.연도) === selectedYear && String(s.월) === selectedMonth
+      );
+
+      const submittedCount = SITE_LIST.filter(site => filtered.some(s => s.현장명 === site)).length;
+      const notSubmittedCount = SITE_LIST.length - submittedCount;
+      const totalAmount  = filtered.reduce((sum, s) => sum + parseAmount(s.금회기성), 0);
+      const submitPercent = SITE_LIST.length > 0 ? Math.round((submittedCount / SITE_LIST.length) * 100) : 0;
+
+      return (
+        <div className="space-y-4 animate-fade-in">
+
+          {/* 헤더 */}
+          <div className="flex flex-wrap justify-between items-center gap-3 bg-white p-4 rounded-xl shadow-sm border border-gray-200">
+            <h2 className="font-bold flex items-center gap-2 text-gray-800">
+              <span className="material-symbols-outlined text-blue-600">calendar_month</span>
+              월별 제출 현황
+            </h2>
+            <div className="flex items-center gap-2 flex-wrap">
+              <select
+                value={selectedYear}
+                onChange={e => setSelectedYear(e.target.value)}
+                className="border border-gray-300 rounded-lg px-2 py-1.5 text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+              >
+                {years.map(y => <option key={y} value={y}>{y}년</option>)}
+              </select>
+              <select
+                value={selectedMonth}
+                onChange={e => setSelectedMonth(e.target.value)}
+                className="border border-gray-300 rounded-lg px-2 py-1.5 text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+              >
+                {[...Array(12)].map((_, i) => <option key={i+1} value={i+1}>{i+1}월</option>)}
+              </select>
+              <button
+                onClick={() => exportMonthlyToExcel(statements, selectedYear, selectedMonth)}
+                className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-sm font-bold flex items-center gap-1 hover:bg-emerald-700 transition-colors shadow-sm"
+              >
+                <span className="material-symbols-outlined" style={{fontSize:'16px'}}>download</span>
+                엑셀 다운로드
+              </button>
+            </div>
+          </div>
+
+          {/* 통계 카드 */}
+          <div className="grid grid-cols-3 gap-3">
+            <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
+              <div className="text-xs font-bold text-gray-500 mb-1">제출완료</div>
+              <div className="text-2xl font-extrabold text-green-600">
+                {submittedCount}
+                <span className="text-sm text-gray-400 font-normal">/{SITE_LIST.length}</span>
+              </div>
+              <div className="w-full bg-gray-100 rounded-full h-1.5 mt-2">
+                <div
+                  className="bg-green-500 h-1.5 rounded-full transition-all duration-500"
+                  style={{width: `${submitPercent}%`}}
+                ></div>
+              </div>
+              <div className="text-[10px] text-gray-400 mt-1">{submitPercent}% 제출</div>
+            </div>
+            <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
+              <div className="text-xs font-bold text-gray-500 mb-1">미제출</div>
+              <div className="text-2xl font-extrabold text-red-500">{notSubmittedCount}</div>
+              <div className="text-[10px] text-gray-400 mt-3">현장 미제출</div>
+            </div>
+            <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
+              <div className="text-xs font-bold text-gray-500 mb-1">금회합계</div>
+              <div className="text-sm font-extrabold text-blue-700 mt-1 break-all">
+                {isAdmin
+                  ? `₩${totalAmount.toLocaleString()}`
+                  : <span className="flex items-center gap-1 text-gray-400">
+                      <span className="material-symbols-outlined" style={{fontSize:'14px'}}>lock</span>
+                      관리자 전용
+                    </span>
+                }
+              </div>
+              <div className="text-[10px] text-gray-400 mt-1">
+                {!isAdmin && (
+                  <button onClick={() => setIsPwdModalOpen(true)} className="underline text-blue-500 hover:text-blue-700">금액 확인하기</button>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* 로딩 / 에러 / 현장 그리드 */}
+          {isLoading ? (
+            <div className="text-center p-14 text-gray-400 font-medium flex flex-col items-center gap-3">
+              <span className="material-symbols-outlined animate-spin text-4xl text-blue-400">sync</span>
+              <span>데이터 로딩 중...</span>
+            </div>
+          ) : loadError ? (
+            <div className="text-center p-8 text-amber-600 text-sm bg-amber-50 rounded-xl border border-amber-200">
+              데이터를 불러오지 못했습니다. 기성내역서 탭에서 다시 시도해 주세요.
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-3">
+              {SITE_LIST.map(site => {
+                const siteStmts = filtered.filter(s => s.현장명 === site);
+                const submitted = siteStmts.length > 0;
+                const categories = [...new Set(siteStmts.map(s => s.공종))];
+                const siteTotal  = siteStmts.reduce((sum, s) => sum + parseAmount(s.금회기성), 0);
+
+                return (
+                  <div
+                    key={site}
+                    className={`p-3 rounded-xl border transition-all ${submitted ? 'bg-green-50 border-green-200' : 'bg-gray-50 border-gray-200'}`}
+                  >
+                    <div className="flex items-start gap-2">
+                      <span
+                        className={`material-symbols-outlined flex-shrink-0 mt-0.5 ${submitted ? 'text-green-500' : 'text-gray-300'}`}
+                        style={{fontSize:'18px'}}
+                      >
+                        {submitted ? 'check_circle' : 'radio_button_unchecked'}
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <div className={`text-xs font-bold leading-tight truncate ${submitted ? 'text-green-900' : 'text-gray-500'}`}>
+                          {site}
+                        </div>
+                        {submitted ? (
+                          <div className="mt-1.5 space-y-1">
+                            <div className="flex flex-wrap gap-1">
+                              {categories.map(cat => (
+                                <span key={cat} className="text-[10px] px-1.5 py-0.5 bg-green-200 text-green-800 rounded font-bold">{cat}</span>
+                              ))}
+                            </div>
+                            {isAdmin && (
+                              <div className="text-[10px] text-green-700 font-bold">
+                                ₩{siteTotal.toLocaleString()}
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="text-[10px] text-gray-400 mt-1">미제출</div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      );
+    };
+
+    // ==========================================
+    // 3. 기성내역서 탭 컴포넌트
+    // ==========================================
+    const StatementsTab = ({
+      statements, isLoading, isRefreshing, loadError, lastUpdated, loadData,
+      currentUser, contracts, setContracts, isAdmin, setIsAdmin, setIsPwdModalOpen
+    }) => {
       const [isFormModalOpen, setIsFormModalOpen] = useState(false);
-      const [isLoading, setIsLoading]       = useState(true);
-      const [isRefreshing, setIsRefreshing] = useState(false);
-      const [loadError, setLoadError]       = useState(null);
       const [editingRowIndex, setEditingRowIndex] = useState(null);
       const [errorMsg, setErrorMsg]         = useState(null);
       const [isSubmitting, setIsSubmitting] = useState(false);
-      const [lastUpdated, setLastUpdated]   = useState(null);
 
       const [newForm, setNewForm] = useState({
         year: String(new Date().getFullYear()),
         month: String(new Date().getMonth() + 1),
         round: '1', category: '기계', amount: '', prevAmount: ''
       });
-
-      const loadData = useCallback(async (isManualRefresh = false) => {
-        if (isManualRefresh) setIsRefreshing(true);
-        else setIsLoading(true);
-        setLoadError(null);
-
-        try {
-          const res = await fetchWithTimeout(SHEETS_URL, { method: 'GET' });
-
-          if (!res.ok) {
-            throw new Error(`HTTP ${res.status} — Google Sheets 접근 실패. 시트가 공개(링크로 볼 수 있음)로 설정되어 있는지 확인하세요.`);
-          }
-
-          const text = await res.text();
-          console.log('[loadData] Google Sheets 응답 (앞 300자):', text.slice(0, 300));
-
-          const dataWithIds = parseGSheetResponse(text);
-          console.log('[loadData] 파싱된 행 수:', dataWithIds.length, '/ 첫 행 샘플:', dataWithIds[0]);
-
-          setStatements(dataWithIds);
-          setLastUpdated(new Date());
-
-          const loadedContracts = {};
-          dataWithIds.forEach(item => {
-            if (item.현장명 && item.계약금액) {
-              loadedContracts[item.현장명] = parseAmount(item.계약금액);
-            }
-          });
-          setContracts(prev => ({ ...loadedContracts, ...prev }));
-
-        } catch (e) {
-          console.error('[loadData] 실패:', e.message);
-          setLoadError(e.message);
-        } finally {
-          setIsLoading(false);
-          setIsRefreshing(false);
-        }
-      }, [setContracts]);
-
-      useEffect(() => { loadData(false); }, [loadData]);
 
       const handleFormSubmit = async (e) => {
         e.preventDefault();
@@ -282,18 +476,13 @@
         const remaining    = totalContract - cumulative;
         const rate         = totalContract > 0 ? (cumulative / totalContract) * 100 : 0;
 
-        // ==========================================
-        // 🚀 고유코드(복합코드) 생성 로직
-        // 추후 N8N 수정 노드에서 이 값을 기준으로 업데이트할 수 있습니다.
-        // 예: 모아평택고덕_2023년_11월_1회차_기계
-        // ==========================================
         const uniqueCode = `${currentUser.siteName}_${newForm.year}년_${newForm.month}월_${newForm.round}회차_${newForm.category}`.replace(/\s/g, '');
 
         const payload = {
           action: isEditing ? 'edit' : 'submit',
           ...(isEditing && { rowIndex: editingRowIndex }),
           data: {
-            고유코드: uniqueCode, // N8N으로 전송되는 복합코드
+            고유코드: uniqueCode,
             이름:     currentUser.name,
             직책:     currentUser.role,
             이메일:   currentUser.email,
@@ -337,7 +526,7 @@
             month: String(new Date().getMonth() + 1),
             round: '1', category: '기계', amount: '', prevAmount: ''
           });
-          await loadData(true); 
+          await loadData(true);
 
         } catch (e) {
           console.error('[submit] 오류:', e.message);
@@ -381,7 +570,7 @@
               )}
             </div>
 
-            <div className="flex gap-2 items-center">
+            <div className="flex gap-2 items-center flex-wrap justify-end">
               <button
                 onClick={() => isAdmin ? setIsAdmin(false) : setIsPwdModalOpen(true)}
                 className="px-3 py-2 text-sm border border-gray-300 rounded-lg flex items-center gap-1 hover:bg-gray-50 transition-colors"
@@ -398,6 +587,16 @@
               >
                 <span className={`material-symbols-outlined ${isRefreshing ? 'animate-spin' : ''}`} style={{fontSize:'16px'}}>refresh</span>
                 {isRefreshing ? '로딩...' : '새로고침'}
+              </button>
+
+              <button
+                onClick={() => exportAllToExcel(statements)}
+                disabled={isLoading || statements.length === 0}
+                title="전체 데이터를 엑셀로 다운로드"
+                className="px-3 py-2 text-sm bg-emerald-600 text-white rounded-lg flex items-center gap-1 hover:bg-emerald-700 transition-colors disabled:opacity-40 shadow-sm font-bold"
+              >
+                <span className="material-symbols-outlined" style={{fontSize:'16px'}}>download</span>
+                전체 엑셀
               </button>
 
               <button
@@ -632,11 +831,58 @@
     // ==========================================
     const App = () => {
       const [user]     = useState({ name: '관리자', email: 'admin@test.com', siteName: '모아 평택고덕', role: '마스터' });
-      const [activeTab, setActiveTab]       = useState('statements');
-      const [isAdmin, setIsAdmin]           = useState(false);
+      const [activeTab, setActiveTab]           = useState('statements');
+      const [isAdmin, setIsAdmin]               = useState(false);
       const [isPwdModalOpen, setIsPwdModalOpen] = useState(false);
-      const [pwdInput, setPwdInput]         = useState('');
-      const [contracts, setContracts]       = useState({});
+      const [pwdInput, setPwdInput]             = useState('');
+      const [contracts, setContracts]           = useState({});
+
+      // 공유 데이터 상태 (StatementsTab → App으로 리프팅)
+      const [statements, setStatements]   = useState([]);
+      const [isLoading, setIsLoading]     = useState(true);
+      const [isRefreshing, setIsRefreshing] = useState(false);
+      const [loadError, setLoadError]     = useState(null);
+      const [lastUpdated, setLastUpdated] = useState(null);
+
+      const loadData = useCallback(async (isManualRefresh = false) => {
+        if (isManualRefresh) setIsRefreshing(true);
+        else setIsLoading(true);
+        setLoadError(null);
+
+        try {
+          const res = await fetchWithTimeout(SHEETS_URL, { method: 'GET' });
+
+          if (!res.ok) {
+            throw new Error(`HTTP ${res.status} — Google Sheets 접근 실패. 시트가 공개(링크로 볼 수 있음)로 설정되어 있는지 확인하세요.`);
+          }
+
+          const text = await res.text();
+          console.log('[loadData] Google Sheets 응답 (앞 300자):', text.slice(0, 300));
+
+          const dataWithIds = parseGSheetResponse(text);
+          console.log('[loadData] 파싱된 행 수:', dataWithIds.length, '/ 첫 행 샘플:', dataWithIds[0]);
+
+          setStatements(dataWithIds);
+          setLastUpdated(new Date());
+
+          const loadedContracts = {};
+          dataWithIds.forEach(item => {
+            if (item.현장명 && item.계약금액) {
+              loadedContracts[item.현장명] = parseAmount(item.계약금액);
+            }
+          });
+          setContracts(prev => ({ ...loadedContracts, ...prev }));
+
+        } catch (e) {
+          console.error('[loadData] 실패:', e.message);
+          setLoadError(e.message);
+        } finally {
+          setIsLoading(false);
+          setIsRefreshing(false);
+        }
+      }, []);
+
+      useEffect(() => { loadData(false); }, [loadData]);
 
       return (
         <div className="max-w-3xl mx-auto p-4 sm:p-6 pb-20">
@@ -645,7 +891,7 @@
               <div className="w-11 h-11 bg-blue-600 rounded-xl flex items-center justify-center text-white font-bold text-xl shadow-inner">H</div>
               <div>
                 <h1 className="text-lg font-extrabold text-gray-900 tracking-tight leading-tight">현장 소통 허브</h1>
-                <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Field Hub v2.2</p>
+                <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Field Hub v2.3</p>
               </div>
             </div>
             <div className="text-right">
@@ -654,20 +900,40 @@
             </div>
           </header>
 
-          <div className="flex space-x-2 bg-gray-200/70 p-1.5 rounded-xl mb-6 w-full max-w-sm mx-auto sm:mx-0">
-            <button onClick={() => setActiveTab('statements')}
-              className={`flex-1 py-2 text-[13px] font-bold rounded-lg transition-all flex justify-center items-center gap-1.5 ${activeTab === 'statements' ? 'bg-white text-blue-600 shadow' : 'text-gray-500 hover:text-gray-800'}`}>
-              <span className="material-symbols-outlined" style={{fontSize:'18px'}}>receipt_long</span> 기성내역서
+          {/* 탭 3개 — max-w-lg로 확대 */}
+          <div className="flex space-x-1.5 bg-gray-200/70 p-1.5 rounded-xl mb-6 w-full max-w-lg mx-auto sm:mx-0">
+            <button
+              onClick={() => setActiveTab('statements')}
+              className={`flex-1 py-2 text-[12px] font-bold rounded-lg transition-all flex justify-center items-center gap-1 ${activeTab === 'statements' ? 'bg-white text-blue-600 shadow' : 'text-gray-500 hover:text-gray-800'}`}
+            >
+              <span className="material-symbols-outlined" style={{fontSize:'16px'}}>receipt_long</span>
+              기성내역서
             </button>
-            <button onClick={() => setActiveTab('security')}
-              className={`flex-1 py-2 text-[13px] font-bold rounded-lg transition-all flex justify-center items-center gap-1.5 ${activeTab === 'security' ? 'bg-white text-blue-600 shadow' : 'text-gray-500 hover:text-gray-800'}`}>
-              <span className="material-symbols-outlined" style={{fontSize:'18px'}}>lock</span> 보안설정
+            <button
+              onClick={() => setActiveTab('monthly')}
+              className={`flex-1 py-2 text-[12px] font-bold rounded-lg transition-all flex justify-center items-center gap-1 ${activeTab === 'monthly' ? 'bg-white text-blue-600 shadow' : 'text-gray-500 hover:text-gray-800'}`}
+            >
+              <span className="material-symbols-outlined" style={{fontSize:'16px'}}>calendar_month</span>
+              월별현황
+            </button>
+            <button
+              onClick={() => setActiveTab('security')}
+              className={`flex-1 py-2 text-[12px] font-bold rounded-lg transition-all flex justify-center items-center gap-1 ${activeTab === 'security' ? 'bg-white text-blue-600 shadow' : 'text-gray-500 hover:text-gray-800'}`}
+            >
+              <span className="material-symbols-outlined" style={{fontSize:'16px'}}>lock</span>
+              보안설정
             </button>
           </div>
 
           <main>
-            {activeTab === 'statements' ? (
+            {activeTab === 'statements' && (
               <StatementsTab
+                statements={statements}
+                isLoading={isLoading}
+                isRefreshing={isRefreshing}
+                loadError={loadError}
+                lastUpdated={lastUpdated}
+                loadData={loadData}
                 currentUser={user}
                 contracts={contracts}
                 setContracts={setContracts}
@@ -675,7 +941,17 @@
                 setIsAdmin={setIsAdmin}
                 setIsPwdModalOpen={setIsPwdModalOpen}
               />
-            ) : (
+            )}
+            {activeTab === 'monthly' && (
+              <MonthlyTab
+                statements={statements}
+                isLoading={isLoading}
+                loadError={loadError}
+                isAdmin={isAdmin}
+                setIsPwdModalOpen={setIsPwdModalOpen}
+              />
+            )}
+            {activeTab === 'security' && (
               <SecurityTab
                 contracts={contracts}
                 setContracts={setContracts}
