@@ -752,6 +752,24 @@
         setErrorMsg(null);
 
         const isEditing     = editingRowIndex !== null;
+
+        // ── 중복 청구 검사 (신규 제출 시에만) ──────────────────
+        if (!isEditing) {
+          const isDuplicate = statements.some(s =>
+            String(s.연도)  === String(newForm.year)     &&
+            String(s.월)    === String(newForm.month)    &&
+            String(s.회차)  === String(newForm.round)    &&
+            s.공종          === newForm.category          &&
+            s.현장명        === currentUser.siteName
+          );
+          if (isDuplicate) {
+            setErrorMsg({ title: '중복 청구', desc: '청구된 내역이 존재합니다.' });
+            setIsSubmitting(false);
+            return;
+          }
+        }
+        // ────────────────────────────────────────────────────────
+
         const url           = isEditing ? WEBHOOK_EDIT_URL : WEBHOOK_LOAD_URL;
         const curAmount     = parseAmount(newForm.amount);
         const prevAmount    = parseAmount(newForm.prevAmount);
