@@ -32,30 +32,23 @@
 
     // ==========================================
     // Google Sheets 직접 조회 설정
-    // 시트가 "링크가 있는 모든 사용자 - 뷰어" 로 공유되어 있어야 합니다.
     // ==========================================
     const SHEET_ID   = '1K3X7vKsm21Bt9kIro8JpYcZmBU03nT7l5ipgsU6JAw4';
     const SHEET_NAME = '기성리스트';
     const SHEETS_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(SHEET_NAME)}&headers=1`;
-    // A열~O열 순서대로 컬럼명
-    const COL_NAMES  = ['이름','직책','이메일','현장명','연도','월','회차','공종','계약금액','전회기성','금회기성','누계기성','잔여금액','기성률','업데이트'];
+    // A열~P열 순서대로 컬럼명 (고유코드 추가)
+    const COL_NAMES  = ['이름','직책','이메일','현장명','연도','월','회차','공종','계약금액','전회기성','금회기성','누계기성','잔여금액','기성률','업데이트','고유코드'];
 
     // ==========================================
     // 유틸리티 함수
     // ==========================================
 
-    // Google Sheets 에서 돌아오는 값이 number / "1,000,000" / "1000000" 혼재 → 통합 변환
     const parseAmount = (val) => {
       if (val === null || val === undefined || val === '') return 0;
       if (typeof val === 'number') return Math.floor(val);
       return parseInt(String(val).replace(/[^0-9]/g, ''), 10) || 0;
     };
 
-    // n8n 응답은 설정에 따라 포맷이 다름 → 배열로 정규화
-    //  ① [{...}, ...]             — 일반 배열 (Respond to Webhook "All Entries JSON")
-    //  ② [{ json:{...} }, ...]    — n8n 내부 포맷
-    //  ③ { data:[...] }           — 래핑 객체
-    //  ④ { ... }                  — 단일 행 (결과 1개)
     const parseN8nResponse = (text) => {
       if (!text || !text.trim()) return [];
       let parsed;
@@ -63,28 +56,19 @@
         console.warn('[parseN8nResponse] JSON 파싱 실패. 원본:', text.slice(0, 300));
         return [];
       }
-      // ② n8n 내부 포맷
       if (Array.isArray(parsed) && parsed.length > 0 && parsed[0] && typeof parsed[0].json === 'object') {
         console.log('[parseN8nResponse] n8n 내부 포맷 → json 언래핑');
         return parsed.map(item => item.json);
       }
-      // ① 일반 배열
       if (Array.isArray(parsed)) return parsed;
-      // ③ 래핑 객체
       if (Array.isArray(parsed?.data))  return parsed.data;
       if (Array.isArray(parsed?.rows))  return parsed.rows;
       if (Array.isArray(parsed?.items)) return parsed.items;
-      // ④ 단일 객체
       if (parsed && typeof parsed === 'object') return [parsed];
       return [];
     };
 
-    // fetch + 5xx / 네트워크 오류 재시도 (4xx는 즉시 에러)
-    // ==========================================
-    // Google Sheets gviz/tq 응답 파서
-    // ==========================================
     const parseGSheetResponse = (text) => {
-      // JSONP 래퍼 제거: /*O_o*/\ngoogle.visualization.Query.setResponse({...});
       const match = text.match(/google\.visualization\.Query\.setResponse\(([\s\S]*)\);?\s*$/);
       if (!match) throw new Error('Google Sheets 응답 형식을 파싱하지 못했습니다. 시트 공유 설정을 확인하세요.');
       const json = JSON.parse(match[1]);
@@ -97,7 +81,7 @@
       return rows
         .filter(row => row.c && row.c.some(cell => cell?.v != null))
         .map((row, idx) => {
-          const obj = { _rowIndex: idx + 2 }; // 1행=헤더, 데이터는 2행부터
+          const obj = { _rowIndex: idx + 2 }; 
           cols.forEach((col, ci) => {
             const key = COL_NAMES[ci] || col.label || col.id;
             obj[key] = row.c?.[ci]?.v ?? '';
@@ -244,17 +228,12 @@
         round: '1', category: '기계', amount: '', prevAmount: ''
       });
 
-      // =====================================================================
-      // 데이터 로드 —  페이지 진입 시 1회 + 새로고침 버튼 클릭 시 실행
-      // =====================================================================
       const loadData = useCallback(async (isManualRefresh = false) => {
         if (isManualRefresh) setIsRefreshing(true);
         else setIsLoading(true);
         setLoadError(null);
 
         try {
-          // Google Sheets gviz/tq API 로 직접 조회 (n8n 불필요)
-          // 시트가 "링크가 있는 모든 사용자 - 뷰어" 공유 설정이어야 합니다.
           const res = await fetchWithTimeout(SHEETS_URL, { method: 'GET' });
 
           if (!res.ok) {
@@ -270,14 +249,12 @@
           setStatements(dataWithIds);
           setLastUpdated(new Date());
 
-          // 시트 데이터에서 현장별 계약금액 초기 세팅
           const loadedContracts = {};
           dataWithIds.forEach(item => {
             if (item.현장명 && item.계약금액) {
               loadedContracts[item.현장명] = parseAmount(item.계약금액);
             }
           });
-          // 로컬(관리자)이 이미 설정한 값은 유지, 없는 현장만 시트 값 사용
           setContracts(prev => ({ ...loadedContracts, ...prev }));
 
         } catch (e) {
@@ -289,12 +266,8 @@
         }
       }, [setContracts]);
 
-      // 페이지 진입 시 1회 자동 로드
       useEffect(() => { loadData(false); }, [loadData]);
 
-      // =====================================================================
-      // 폼 제출 — 등록(submit) / 수정(edit)
-      // =====================================================================
       const handleFormSubmit = async (e) => {
         e.preventDefault();
         setIsSubmitting(true);
@@ -309,10 +282,18 @@
         const remaining    = totalContract - cumulative;
         const rate         = totalContract > 0 ? (cumulative / totalContract) * 100 : 0;
 
+        // ==========================================
+        // 🚀 고유코드(복합코드) 생성 로직
+        // 추후 N8N 수정 노드에서 이 값을 기준으로 업데이트할 수 있습니다.
+        // 예: 모아평택고덕_2023년_11월_1회차_기계
+        // ==========================================
+        const uniqueCode = `${currentUser.siteName}_${newForm.year}년_${newForm.month}월_${newForm.round}회차_${newForm.category}`.replace(/\s/g, '');
+
         const payload = {
           action: isEditing ? 'edit' : 'submit',
           ...(isEditing && { rowIndex: editingRowIndex }),
           data: {
+            고유코드: uniqueCode, // N8N으로 전송되는 복합코드
             이름:     currentUser.name,
             직책:     currentUser.role,
             이메일:   currentUser.email,
@@ -349,7 +330,6 @@
           const responseText = await res.text();
           console.log('[submit] 응답:', responseText.slice(0, 300));
 
-          // 성공 → 모달 닫기 → 데이터 새로고침
           setIsFormModalOpen(false);
           setEditingRowIndex(null);
           setNewForm({
@@ -357,7 +337,7 @@
             month: String(new Date().getMonth() + 1),
             round: '1', category: '기계', amount: '', prevAmount: ''
           });
-          await loadData(true); // 새 데이터 즉시 반영
+          await loadData(true); 
 
         } catch (e) {
           console.error('[submit] 오류:', e.message);
@@ -387,13 +367,9 @@
         ? lastUpdated.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
         : null;
 
-      // =====================================================================
-      // 렌더
-      // =====================================================================
       return (
         <div className="space-y-4">
 
-          {/* 헤더 바 */}
           <div className="flex justify-between items-center bg-white p-4 rounded-xl shadow-sm border border-gray-200">
             <div>
               <h2 className="font-bold flex items-center gap-2 text-gray-800">
@@ -406,7 +382,6 @@
             </div>
 
             <div className="flex gap-2 items-center">
-              {/* 금액 잠금/잠금해제 */}
               <button
                 onClick={() => isAdmin ? setIsAdmin(false) : setIsPwdModalOpen(true)}
                 className="px-3 py-2 text-sm border border-gray-300 rounded-lg flex items-center gap-1 hover:bg-gray-50 transition-colors"
@@ -415,7 +390,6 @@
                 {isAdmin ? '금액 숨기기' : '금액 확인'}
               </button>
 
-              {/* 새로고침 버튼 */}
               <button
                 onClick={() => loadData(true)}
                 disabled={isRefreshing || isLoading}
@@ -426,7 +400,6 @@
                 {isRefreshing ? '로딩...' : '새로고침'}
               </button>
 
-              {/* 새 기성 등록 */}
               <button
                 onClick={() => {
                   setEditingRowIndex(null);
@@ -445,7 +418,6 @@
             </div>
           </div>
 
-          {/* 오류 배너 */}
           {loadError && (
             <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 animate-fade-in">
               <div className="flex items-start gap-3">
@@ -466,13 +438,12 @@
               <div className="mt-3 bg-amber-100/60 rounded-lg p-3 text-[11px] text-amber-800 space-y-1">
                 <p className="font-bold">📌 해결 방법 체크리스트</p>
                 <p>① 구글 시트 우측 상단 <b>"공유"</b> 클릭</p>
-                <p>② <b>"링크가 있는 모든 사용자"</b> → <b>"뷰어"</b> 로 설정 후 저장</p>
+                <p>② <b>"링크가 있는 모든 사용자"</b> → <b>"뷰어" (또는 편집자)</b> 로 설정 후 저장</p>
                 <p>③ 시트명이 정확히 <b>"{SHEET_NAME}"</b> 인지 확인</p>
               </div>
             </div>
           )}
 
-          {/* 목록 */}
           <div className="grid gap-3">
             {isLoading ? (
               <div className="text-center p-14 text-gray-400 font-medium flex flex-col items-center gap-3">
@@ -531,7 +502,6 @@
             )}
           </div>
 
-          {/* 등록 / 수정 모달 */}
           {isFormModalOpen && (
             <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 overflow-y-auto backdrop-blur-sm">
               <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-2xl my-auto animate-fade-in border border-gray-100">
@@ -550,7 +520,6 @@
 
                 <form onSubmit={handleFormSubmit} className="space-y-5">
 
-                  {/* 년도 / 월 / 회차 */}
                   <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
                     <div className="flex items-center justify-center gap-2 mb-3">
                       <span className="material-symbols-outlined text-gray-500" style={{fontSize:'18px'}}>calendar_month</span>
@@ -583,7 +552,6 @@
                     </div>
                   </div>
 
-                  {/* 공종 */}
                   <div>
                     <label className="block text-[11px] font-bold text-gray-600 mb-1">공종 (카테고리)</label>
                     <select value={newForm.category}
@@ -593,7 +561,6 @@
                     </select>
                   </div>
 
-                  {/* 계약금액 (읽기 전용) */}
                   <div>
                     <label className="block text-[11px] font-bold text-gray-400 mb-1 flex justify-between">
                       <span>현장 전체 계약금액</span>
@@ -606,7 +573,6 @@
                       className="w-full border border-gray-200 p-2.5 rounded-lg text-sm font-bold bg-gray-100 text-gray-500 cursor-not-allowed outline-none" />
                   </div>
 
-                  {/* 전회 / 금회 */}
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="block text-[11px] font-bold text-gray-600 mb-1">전회까지 누계기성</label>
@@ -622,7 +588,6 @@
                     </div>
                   </div>
 
-                  {/* 한글 금액 미리보기 */}
                   <div className="bg-blue-50 p-3 rounded-lg border border-blue-100 flex items-center justify-between">
                     <span className="text-[11px] text-blue-500 font-bold">한글 금액 (금회)</span>
                     <span className="text-sm font-bold text-blue-800">
@@ -630,7 +595,6 @@
                     </span>
                   </div>
 
-                  {/* 오류 메시지 */}
                   {errorMsg && (
                     <div className="bg-red-50 text-red-600 p-4 rounded-lg text-xs border border-red-100 flex flex-col gap-2 animate-fade-in">
                       <div className="font-bold flex items-center gap-1.5">
@@ -648,7 +612,6 @@
                     </div>
                   )}
 
-                  {/* 제출 버튼 */}
                   <button type="submit" disabled={isSubmitting}
                     className="w-full py-3 mt-2 bg-blue-600 text-white rounded-xl font-bold shadow-lg shadow-blue-600/30 hover:bg-blue-700 transition-all disabled:opacity-50 flex justify-center items-center gap-2">
                     {isSubmitting
@@ -722,7 +685,6 @@
             )}
           </main>
 
-          {/* 관리자 인증 모달 */}
           {isPwdModalOpen && (
             <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] p-4 backdrop-blur-sm animate-fade-in">
               <div className="bg-white rounded-2xl p-6 max-w-xs w-full shadow-2xl border border-gray-100">
