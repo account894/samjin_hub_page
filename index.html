@@ -56,12 +56,15 @@
   <div id="root"></div>
   <!-- 자유게시판 모듈 (Board 전역 객체) -->
   <script>
+function _generatePostId() {
+    return Date.now().toString(36) + '-' + Math.random().toString(36).substr(2, 9);
+}
 const _BOARD_DEFAULTS = {
     OPENSHEET_API_BASE:       'https://opensheet.elk.sh',
     BOARD_SHEET_ID:           '1K3X7vKsm21Bt9kIro8JpYcZmBU03nT7l5ipgsU6JAw4',
     BOARD_SHEET_NAME:         'FreeBord',
-    N8N_WEBHOOK_BOARD_ADD:    'https://158.179.174.86.sslip.io/webhook/d1d1bf09-fd87-49ae-8621-71560a811188',
-    N8N_WEBHOOK_BOARD_UPDATE: 'https://158.179.174.86.sslip.io/webhook/24788509-4f32-416f-b457-f7040984a91c'
+    N8N_WEBHOOK_BOARD_ADD:    'https://158.179.174.86.sslip.io/webhook-test/d1d1bf09-fd87-49ae-8621-71560a811188',
+    N8N_WEBHOOK_BOARD_UPDATE: 'https://158.179.174.86.sslip.io/webhook-test/24788509-4f32-416f-b457-f7040984a91c'
 };
 function _bcfg(key) {
     if (typeof window.APP_CONFIG !== 'undefined' && window.APP_CONFIG[key] !== undefined) return window.APP_CONFIG[key];
@@ -234,7 +237,7 @@ const Board = (() => {
         const btn = document.getElementById('boardSubmitBtn');
         if (!title || !content) { _boardAlert('제목과 내용을 입력해주세요.'); return; }
         if (btn) { btn.innerHTML = `<i class="ph-bold ph-spinner animate-spin mr-2"></i> 등록 중...`; btn.disabled = true; }
-        const newPost = { id: Date.now(), category, nickname, title, content, date: new Date().toISOString(), views: 0, comments: '[]' };
+        const newPost = { id: _generatePostId(), category, nickname, title, content, date: new Date().toISOString(), views: 0, comments: '[]' };
         const addUrl = _bcfg('N8N_WEBHOOK_BOARD_ADD');
         if (addUrl) {
             try {
