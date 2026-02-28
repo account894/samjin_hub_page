@@ -10,6 +10,8 @@
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <!-- 외부 연동 주소·시트 정보 통합 설정 파일 -->
+  <script src="config.js"></script>
   <style>
     .material-symbols-outlined { display: inline-flex; align-items: center; justify-content: center; vertical-align: middle; }
     @keyframes fadeIn { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: translateY(0); } }
@@ -26,27 +28,9 @@
     const { useState, useEffect, useCallback } = React;
 
     // ==========================================
-    // 웹훅 주소 (n8n) — 등록·수정 전송 전용
+    // 설정값은 config.js 에서 로드됩니다.
+    // (웹훅 주소, 구글 시트 ID·URL·컬럼명 등)
     // ==========================================
-    const WEBHOOK_LOAD_URL = 'https://158.179.174.86.sslip.io/webhook-test/795acae9-62b5-4ba0-b0ce-a80f9e3a5d88';
-    const WEBHOOK_EDIT_URL = 'https://158.179.174.86.sslip.io/webhook-test/0d46d84b-8a63-4c11-9536-bb50c5e34a5f';
-    const WEBHOOK_PWD_URL      = 'https://158.179.174.86.sslip.io/webhook-test/ae2b0e5c-37ec-42f9-a5b3-4bd7469872c4';
-    const WEBHOOK_NEW_SITE_URL = 'https://158.179.174.86.sslip.io/webhook-test/c40cc374-0ff2-4d2f-b390-ea811ecfac71';
-
-    // ==========================================
-    // Google Sheets 설정
-    // ==========================================
-    const SHEET_ID   = '1K3X7vKsm21Bt9kIro8JpYcZmBU03nT7l5ipgsU6JAw4';
-
-    // 기성리스트 시트
-    const SHEET_NAME = '기성리스트';
-    const SHEETS_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(SHEET_NAME)}&headers=1`;
-    const COL_NAMES  = ['이름','직책','이메일','현장명','연도','월','회차','공종','계약금액','전회기성','금회기성','누계기성','잔여금액','기성률','업데이트','고유코드'];
-
-    // DB정보 시트 (로그인 + 현장 목록)
-    const DB_SHEET_NAME = 'DB정보';
-    const DB_SHEETS_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(DB_SHEET_NAME)}&headers=1`;
-    const DB_COL_NAMES  = ['ID', '비밀번호', '현장명', '회사', '계약금액'];
 
     // ==========================================
     // 유틸리티 함수
