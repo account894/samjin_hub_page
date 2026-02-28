@@ -1004,6 +1004,8 @@
       const [editingRowIndex, setEditingRowIndex] = useState(null);
       const [errorMsg, setErrorMsg]               = useState(null);
       const [isSubmitting, setIsSubmitting]       = useState(false);
+      // 현장명 필터: master는 '전체', 일반 사용자는 본인 현장 기본 선택
+      const [selectedSite, setSelectedSite]       = useState(() => isAdmin ? '' : currentUser.siteName);
 
       // ── 제출 후 10초 쿨다운 ─────────────────────────────────
       const [cooldownUntil,   setCooldownUntil]   = useState(0);
@@ -1151,11 +1153,22 @@
               )}
             </div>
             <div className="flex gap-2 items-center flex-wrap justify-end">
-              <button onClick={() => loadData(true)} disabled={isRefreshing || isLoading}
-                className="px-3 py-2 text-sm border border-gray-300 rounded-lg flex items-center gap-1 hover:bg-gray-50 transition-colors disabled:opacity-40">
-                <span className={`material-symbols-outlined ${isRefreshing ? 'animate-spin' : ''}`} style={{fontSize:'16px'}}>refresh</span>
-                {isRefreshing ? '로딩...' : '새로고침'}
-              </button>
+              {/* 현장명 필터 드롭다운 */}
+              {(() => {
+                const siteOptions = ['', ...Array.from(new Set(statements.map(s => s.현장명).filter(Boolean)))];
+                return (
+                  <select
+                    value={selectedSite}
+                    onChange={e => setSelectedSite(e.target.value)}
+                    disabled={isLoading}
+                    className="border border-gray-300 rounded-lg px-2 py-2 text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500 bg-white max-w-[160px] truncate disabled:opacity-40">
+                    <option value="">전체 현장</option>
+                    {siteOptions.slice(1).map(site => (
+                      <option key={site} value={site}>{site}</option>
+                    ))}
+                  </select>
+                );
+              })()}
               <button onClick={() => {
                   if (cooldownLeft > 0) {
                     setShowCooldownMsg(true);
@@ -1207,13 +1220,13 @@
                 <span>구글 시트에서 데이터를 불러오는 중...</span>
                 <span className="text-[11px]">시트: {SHEET_NAME}</span>
               </div>
-            ) : statements.length === 0 ? (
+            ) : statements.filter(s => !selectedSite || s.현장명 === selectedSite).length === 0 ? (
               <div className="text-center p-10 text-gray-400 text-sm bg-white rounded-xl border border-gray-200 shadow-sm flex flex-col items-center gap-2">
                 <span className="material-symbols-outlined text-3xl text-gray-300">inbox</span>
-                {loadError ? '오류로 인해 데이터를 표시할 수 없습니다.' : '등록된 기성 내역이 없습니다.'}
+                {loadError ? '오류로 인해 데이터를 표시할 수 없습니다.' : selectedSite ? `'${selectedSite}' 현장의 기성 내역이 없습니다.` : '등록된 기성 내역이 없습니다.'}
               </div>
             ) : (
-              statements.map((s, idx) => {
+              statements.filter(s => !selectedSite || s.현장명 === selectedSite).map((s, idx) => {
                 const isOwnRow = s.이메일 === currentUser.email;
                 return (
                   <div key={s._rowIndex ?? idx}
@@ -1389,12 +1402,13 @@
         try {
           const saved = localStorage.getItem('gisungUser');
           if (saved) {
-            const { userObj, isAdminSaved, contractsSaved, siteListSaved, userListSaved } = JSON.parse(saved);
+            const { userObj, isAdminSaved, contractsSaved, siteListSaved, userListSaved, masterPwdSaved } = JSON.parse(saved);
             setCurrentUser(userObj);
             setIsAdmin(isAdminSaved || false);
             setContracts(contractsSaved || {});
             setDbSiteList(siteListSaved || []);
             setDbUserList(userListSaved || []);
+            setMasterPwd(masterPwdSaved || '');
             setIsLoggedIn(true);
           }
         } catch (e) {
@@ -1405,6 +1419,8 @@
       // ---- DB정보에서 추출한 현장 목록 + 전체 행 ----
       const [dbSiteList, setDbSiteList] = useState([]);
       const [dbUserList, setDbUserList] = useState([]);
+      // master 계정 비밀번호 — 구글시트에서 동적 로드, 인증 모달에 사용
+      const [masterPwd,  setMasterPwd]  = useState('');
 
       // ---- 앱 상태 ----
       const [activeTab,         setActiveTab]         = useState('statements');
@@ -1417,8 +1433,9 @@
       const [isExcelPwdOpen,    setIsExcelPwdOpen]    = useState(false);
       const [excelPwdCallback,  setExcelPwdCallback]  = useState(null);
 
-      // 엑셀 다운로드 요청: 비밀번호 인증 후 callback 실행
+      // 엑셀 다운로드 요청: master로 로그인된 경우 바로 실행, 아니면 비밀번호 인증
       const requestExcelDownload = (callback) => {
+        if (currentUser?.id === 'master') { callback(); return; }
         setExcelPwdCallback(() => callback);
         setIsExcelPwdOpen(true);
       };
@@ -1497,6 +1514,11 @@
           const isMaster = userObj.id === 'master';
           if (isMaster) setIsAdmin(true);
 
+          // master 비밀번호를 전체 users(필터 전)에서 추출 — 동적 인증에 사용
+          const masterRow = users.find(u => String(u['ID'] ?? '').trim() === 'master');
+          const masterPwdValue = String(masterRow?.['비밀번호'] ?? '').trim();
+          setMasterPwd(masterPwdValue);
+
           setCurrentUser(userObj);
           setIsLoggedIn(true);
 
@@ -1506,7 +1528,8 @@
             isAdminSaved:    isMaster,
             contractsSaved:  initContracts,
             siteListSaved:   siteNames,
-            userListSaved:   validUsers
+            userListSaved:   validUsers,
+            masterPwdSaved:  masterPwdValue
           }));
 
         } catch (e) {
@@ -1543,6 +1566,9 @@
             if (name && !seen.has(name)) { seen.add(name); siteNames.push(name); }
           });
           setDbSiteList(siteNames);
+          // master 비밀번호도 갱신 (구글시트에서 변경됐을 수 있으므로)
+          const masterRow = users.find(u => String(u['ID'] ?? '').trim() === 'master');
+          if (masterRow) setMasterPwd(String(masterRow['비밀번호'] ?? '').trim());
         } catch (e) {
           console.error('[refreshDb] 실패:', e.message);
           throw e; // SecurityTab의 isRefreshing 해제를 위해 re-throw
@@ -1561,6 +1587,7 @@
         setContracts({});
         setActiveTab('statements');
         setIsAdmin(false);
+        setMasterPwd('');
         setLoadError(null);
         setLastUpdated(null);
         setLoginError(null);
@@ -1746,7 +1773,7 @@
           {/* 엑셀 다운로드 비밀번호 인증 모달 */}
           {isExcelPwdOpen && (
             <ExcelPwdModal
-              masterPwd={dbUserList.find(u => String(u['ID'] ?? '').trim() === 'master')?.[`비밀번호`] ?? ''}
+              masterPwd={masterPwd}
               onConfirm={() => {
                 setIsExcelPwdOpen(false);
                 if (excelPwdCallback) excelPwdCallback();
@@ -1772,7 +1799,7 @@
                   onChange={e => setPwdInput(e.target.value)}
                   onKeyDown={e => {
                     if (e.key === 'Enter') {
-                      if (pwdInput === 'admin123') { setIsAdmin(true); setIsPwdModalOpen(false); setPwdInput(''); }
+                      if (masterPwd && pwdInput === masterPwd) { setIsAdmin(true); setIsPwdModalOpen(false); setPwdInput(''); }
                       else alert('비밀번호가 틀렸습니다.');
                     }
                   }}
@@ -1785,7 +1812,7 @@
                     취소
                   </button>
                   <button onClick={() => {
-                    if (pwdInput === 'admin123') { setIsAdmin(true); setIsPwdModalOpen(false); setPwdInput(''); }
+                    if (masterPwd && pwdInput === masterPwd) { setIsAdmin(true); setIsPwdModalOpen(false); setPwdInput(''); }
                     else alert('비밀번호가 틀렸습니다.');
                   }} className="flex-1 py-2.5 bg-blue-600 text-white font-bold rounded-lg text-sm shadow-md hover:bg-blue-700 transition-colors">
                     인증 확인
