@@ -293,6 +293,17 @@ const Board = (() => {
         if (titleEl) titleEl.value = '';
         const contentEl = document.getElementById('boardPostContent');
         if (contentEl) contentEl.value = '';
+        // master 전용 공지사항 옵션 동적 관리
+        const sel = document.getElementById('boardPostCategory');
+        if (sel) {
+            Array.from(sel.options).forEach(o => { if (o.value === '공지') sel.removeChild(o); });
+            if (window.boardIsMaster) {
+                const opt = document.createElement('option');
+                opt.value = '공지'; opt.textContent = '📢 공지사항';
+                sel.insertBefore(opt, sel.firstChild);
+            }
+            sel.selectedIndex = 0;
+        }
         const modal = document.getElementById('boardWriteModal');
         if (modal) modal.style.display = 'flex';
     }
@@ -1674,6 +1685,7 @@ const Board = (() => {
       // 닉네임 전역 동기화 및 라벨 업데이트
       useEffect(() => {
         window.boardCurrentNickname = nickname;
+        window.boardIsMaster = currentUser?.id === 'master';
         const nicknameEl = document.getElementById('boardPostNicknameLabel');
         if (nicknameEl) nicknameEl.textContent = nickname;
         const commentEl = document.getElementById('boardCommentNicknameLabel');
