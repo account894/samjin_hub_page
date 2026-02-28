@@ -191,7 +191,7 @@
       if (typeof XLSX === 'undefined') { alert('SheetJS 라이브러리가 로드되지 않았습니다.'); return; }
       const wb = XLSX.utils.book_new();
       const allData = statements.map(s => ({
-        '이름': s.이름, '직책': s.직책, '이메일': s.이메일, '현장명': s.현장명,
+        '직책': s.직책, '현장명': s.현장명,
         '연도': s.연도, '월': s.월, '회차': s.회차, '공종': s.공종,
         '계약금액': parseAmount(s.계약금액), '전회기성': parseAmount(s.전회기성),
         '금회기성': parseAmount(s.금회기성), '누계기성': parseAmount(s.누계기성),
@@ -199,7 +199,7 @@
       }));
       const ws = XLSX.utils.json_to_sheet(allData);
       ws['!cols'] = [
-        { wch: 12 }, { wch: 12 }, { wch: 25 }, { wch: 26 }, { wch: 6 }, { wch: 4 },
+        { wch: 12 }, { wch: 26 }, { wch: 6 }, { wch: 4 },
         { wch: 5 }, { wch: 12 }, { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 16 },
         { wch: 16 }, { wch: 8 }, { wch: 14 }
       ];
@@ -1075,20 +1075,10 @@
               )}
             </div>
             <div className="flex gap-2 items-center flex-wrap justify-end">
-              <button onClick={() => isAdmin ? setIsAdmin(false) : setIsPwdModalOpen(true)}
-                className="px-3 py-2 text-sm border border-gray-300 rounded-lg flex items-center gap-1 hover:bg-gray-50 transition-colors">
-                <span className="material-symbols-outlined" style={{fontSize:'16px'}}>{isAdmin ? 'lock_open' : 'lock'}</span>
-                {isAdmin ? '금액 숨기기' : '전체 금액'}
-              </button>
               <button onClick={() => loadData(true)} disabled={isRefreshing || isLoading}
                 className="px-3 py-2 text-sm border border-gray-300 rounded-lg flex items-center gap-1 hover:bg-gray-50 transition-colors disabled:opacity-40">
                 <span className={`material-symbols-outlined ${isRefreshing ? 'animate-spin' : ''}`} style={{fontSize:'16px'}}>refresh</span>
                 {isRefreshing ? '로딩...' : '새로고침'}
-              </button>
-              <button onClick={() => exportAllToExcel(statements)} disabled={isLoading || statements.length === 0}
-                className="px-3 py-2 text-sm bg-emerald-600 text-white rounded-lg flex items-center gap-1 hover:bg-emerald-700 transition-colors disabled:opacity-40 shadow-sm font-bold">
-                <span className="material-symbols-outlined" style={{fontSize:'16px'}}>download</span>
-                전체 엑셀
               </button>
               <button onClick={() => {
                   if (cooldownLeft > 0) {
