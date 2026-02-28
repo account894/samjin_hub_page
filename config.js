@@ -61,3 +61,16 @@ var DB_SHEETS_URL = 'https://docs.google.com/spreadsheets/d/' + SHEET_ID
 
 /** DB정보 시트 컬럼 순서 (헤더 행과 동일하게 유지) */
 var DB_COL_NAMES = ['ID', '비밀번호', '현장명', '회사', '계약금액'];
+
+
+// ----------------------------------------------------------------
+//  자유게시판 통합 설정
+//  board.js 가 window.APP_CONFIG 를 자동으로 인식합니다.
+// ----------------------------------------------------------------
+window.APP_CONFIG = {
+  OPENSHEET_API_BASE:       'https://opensheet.elk.sh',
+  BOARD_SHEET_ID:           '1K3X7vKsm21Bt9kIro8JpYcZmBU03nT7l5ipgsU6JAw4',
+  BOARD_SHEET_NAME:         'FreeBord',
+  N8N_WEBHOOK_BOARD_ADD:    'https://158.179.174.86.sslip.io/webhook-test/d1d1bf09-fd87-49ae-8621-71560a811188',
+  N8N_WEBHOOK_BOARD_UPDATE: 'https://158.179.174.86.sslip.io/webhook-test/24788509-4f32-416f-b457-f7040984a91c'
+};

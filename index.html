@@ -12,6 +12,13 @@
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <!-- 외부 연동 주소·시트 정보 통합 설정 파일 -->
   <script src="config.js"></script>
+  <!-- Phosphor Icons (자유게시판) -->
+  <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css">
+  <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/bold/style.css">
+  <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/fill/style.css">
+  <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/duotone/style.css">
+  <!-- 자유게시판 전용 CSS -->
+  <link rel="stylesheet" href="freebord/board.css">
   <style>
     .material-symbols-outlined { display: inline-flex; align-items: center; justify-content: center; vertical-align: middle; }
     @keyframes fadeIn { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: translateY(0); } }
@@ -23,6 +30,8 @@
 </head>
 <body class="bg-gray-50 text-gray-900 font-sans">
   <div id="root"></div>
+  <!-- 자유게시판 모듈 (Board 전역 객체) -->
+  <script src="freebord/board.js"></script>
 
   <script type="text/babel">
     const { useState, useEffect, useCallback } = React;
@@ -1386,6 +1395,103 @@
     };
 
     // ==========================================
+    // 자유게시판 탭 컴포넌트
+    // ==========================================
+    const FreeBordTab = ({ currentUser, isAdmin }) => {
+      const nickname = (currentUser?.id === 'master' || isAdmin)
+        ? '관리자'
+        : (currentUser?.siteName || '익명');
+
+      // 닉네임 전역 동기화 및 라벨 업데이트
+      useEffect(() => {
+        window.boardCurrentNickname = nickname;
+        const nicknameEl = document.getElementById('boardPostNicknameLabel');
+        if (nicknameEl) nicknameEl.textContent = nickname;
+        const commentEl = document.getElementById('boardCommentNicknameLabel');
+        if (commentEl) commentEl.textContent = nickname;
+      }, [nickname]);
+
+      // 탭 진입 시 게시글 로드
+      useEffect(() => {
+        window.boardCurrentNickname = nickname;
+        if (typeof Board !== 'undefined') Board.loadPosts();
+      }, []);
+
+      return (
+        <div className="animate-fade-in">
+          {/* 헤더 */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+            <div>
+              <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
+                <i className="ph-fill ph-chats-teardrop" style={{color:'#4f46e5', fontSize:'22px'}}></i>
+                자유게시판
+              </h2>
+              <p className="text-sm text-slate-500 mt-1">시스템 개선 제안 및 자유로운 의견을 남겨주세요.</p>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <div style={{position:'relative'}}>
+                <i className="ph ph-magnifying-glass" style={{position:'absolute', left:'12px', top:'50%', transform:'translateY(-50%)', color:'#94a3b8', pointerEvents:'none'}}></i>
+                <input type="text" id="boardSearchInput" placeholder="검색어 입력..."
+                  className="bg-white border border-slate-200 rounded-xl text-sm outline-none"
+                  style={{paddingLeft:'36px', paddingRight:'16px', paddingTop:'8px', paddingBottom:'8px', width:'160px'}} />
+              </div>
+              <button onClick={() => typeof Board !== 'undefined' && Board.loadPosts()}
+                className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl font-bold text-sm shadow-sm flex items-center gap-2 transition-colors"
+                style={{padding:'8px 16px'}}>
+                <i className="ph-bold ph-arrows-clockwise" id="boardRefreshIcon"></i> 새로고침
+              </button>
+              <button onClick={() => typeof Board !== 'undefined' && Board.openWriteModal()}
+                className="hover:bg-indigo-700 text-white rounded-xl font-bold text-sm flex items-center gap-2 transition-colors"
+                style={{backgroundColor:'#4f46e5', padding:'8px 20px', boxShadow:'0 4px 14px rgba(79,70,229,0.3)'}}>
+                <i className="ph-bold ph-pencil-line"></i> 글쓰기
+              </button>
+            </div>
+          </div>
+
+          {/* 로그인 현장명 표시 */}
+          <div className="mb-4 flex items-center gap-2">
+            <span className="text-xs text-slate-400">게시 현장명:</span>
+            <span className="text-xs font-bold px-3 py-1 rounded-full"
+              style={{backgroundColor:'#eff6ff', color:'#2563eb', border:'1px solid #bfdbfe'}}>
+              {nickname}
+            </span>
+          </div>
+
+          {/* 카테고리 탭 */}
+          <div className="flex gap-2 mb-6 overflow-x-auto pb-1 no-scrollbar">
+            <button onClick={() => typeof Board !== 'undefined' && Board.setFilter('전체')}
+              className="board-tab-btn active" id="board-tab-전체">전체</button>
+            <button onClick={() => typeof Board !== 'undefined' && Board.setFilter('공지')}
+              className="board-tab-btn" id="board-tab-공지">
+              <i className="ph-fill ph-megaphone" style={{color:'#ef4444'}}></i> 공지
+            </button>
+            <button onClick={() => typeof Board !== 'undefined' && Board.setFilter('개선제안')}
+              className="board-tab-btn" id="board-tab-개선제안">
+              <i className="ph-fill ph-lightbulb" style={{color:'#f59e0b'}}></i> 개선제안
+            </button>
+            <button onClick={() => typeof Board !== 'undefined' && Board.setFilter('질문')}
+              className="board-tab-btn" id="board-tab-질문">
+              <i className="ph-fill ph-question" style={{color:'#ef4444'}}></i> 질문
+            </button>
+          </div>
+
+          {/* 게시글 목록 */}
+          <div className="space-y-3" id="boardPostList">
+            <div className="py-20 text-center">
+              <i className="ph-bold ph-spinner animate-spin" style={{fontSize:'28px', color:'#6366f1', display:'block', margin:'0 auto 12px'}}></i>
+              <p className="text-slate-400 font-medium text-sm">게시글을 불러오는 중입니다...</p>
+            </div>
+          </div>
+
+          {/* 하단 */}
+          <div className="mt-10 pt-6 text-center" style={{borderTop:'1px solid #f1f5f9'}}>
+            <p style={{fontSize:'10px', letterSpacing:'0.1em', color:'#cbd5e1', textTransform:'uppercase'}}>Community Board · SAMJIN Hub</p>
+          </div>
+        </div>
+      );
+    };
+
+    // ==========================================
     // 메인 앱 컨테이너
     // ==========================================
     const App = () => {
@@ -1421,6 +1527,18 @@
       const [dbUserList, setDbUserList] = useState([]);
       // master 계정 비밀번호 — 구글시트에서 동적 로드, 인증 모달에 사용
       const [masterPwd,  setMasterPwd]  = useState('');
+
+      // ---- 자유게시판 현장명 전역 동기화 (로그인/세션복원 후 Board 모듈에서 읽음) ----
+      useEffect(() => {
+        if (currentUser) {
+          const nick = (currentUser.id === 'master') ? '관리자' : (currentUser.siteName || '익명');
+          window.boardCurrentNickname = nick;
+          const labelEl = document.getElementById('boardPostNicknameLabel');
+          if (labelEl) labelEl.textContent = nick;
+          const commentEl = document.getElementById('boardCommentNicknameLabel');
+          if (commentEl) commentEl.textContent = nick;
+        }
+      }, [currentUser]);
 
       // ---- 앱 상태 ----
       const [activeTab,         setActiveTab]         = useState('statements');
@@ -1697,21 +1815,26 @@
           </header>
 
           {/* 탭 */}
-          <div className="flex space-x-1.5 bg-gray-200/70 p-1.5 rounded-xl mb-6 w-full max-w-lg mx-auto sm:mx-0">
+          <div className="flex space-x-1.5 bg-gray-200/70 p-1.5 rounded-xl mb-6 w-full max-w-2xl mx-auto sm:mx-0">
             <button onClick={() => setActiveTab('statements')}
-              className={`flex-1 py-2 text-[12px] font-bold rounded-lg transition-all flex justify-center items-center gap-1 ${activeTab === 'statements' ? 'bg-white text-blue-600 shadow' : 'text-gray-500 hover:text-gray-800'}`}>
-              <span className="material-symbols-outlined" style={{fontSize:'16px'}}>receipt_long</span>
+              className={`flex-1 py-2 text-[11px] font-bold rounded-lg transition-all flex justify-center items-center gap-1 ${activeTab === 'statements' ? 'bg-white text-blue-600 shadow' : 'text-gray-500 hover:text-gray-800'}`}>
+              <span className="material-symbols-outlined" style={{fontSize:'15px'}}>receipt_long</span>
               기성내역서
             </button>
             <button onClick={() => setActiveTab('monthly')}
-              className={`flex-1 py-2 text-[12px] font-bold rounded-lg transition-all flex justify-center items-center gap-1 ${activeTab === 'monthly' ? 'bg-white text-blue-600 shadow' : 'text-gray-500 hover:text-gray-800'}`}>
-              <span className="material-symbols-outlined" style={{fontSize:'16px'}}>calendar_month</span>
+              className={`flex-1 py-2 text-[11px] font-bold rounded-lg transition-all flex justify-center items-center gap-1 ${activeTab === 'monthly' ? 'bg-white text-blue-600 shadow' : 'text-gray-500 hover:text-gray-800'}`}>
+              <span className="material-symbols-outlined" style={{fontSize:'15px'}}>calendar_month</span>
               월별현황
             </button>
             <button onClick={() => setActiveTab('security')}
-              className={`flex-1 py-2 text-[12px] font-bold rounded-lg transition-all flex justify-center items-center gap-1 ${activeTab === 'security' ? 'bg-white text-blue-600 shadow' : 'text-gray-500 hover:text-gray-800'}`}>
-              <span className="material-symbols-outlined" style={{fontSize:'16px'}}>lock</span>
+              className={`flex-1 py-2 text-[11px] font-bold rounded-lg transition-all flex justify-center items-center gap-1 ${activeTab === 'security' ? 'bg-white text-blue-600 shadow' : 'text-gray-500 hover:text-gray-800'}`}>
+              <span className="material-symbols-outlined" style={{fontSize:'15px'}}>lock</span>
               보안설정
+            </button>
+            <button onClick={() => setActiveTab('board')}
+              className={`flex-1 py-2 text-[11px] font-bold rounded-lg transition-all flex justify-center items-center gap-1 ${activeTab === 'board' ? 'bg-white text-indigo-600 shadow' : 'text-gray-500 hover:text-gray-800'}`}>
+              <span className="material-symbols-outlined" style={{fontSize:'15px'}}>forum</span>
+              자유게시판
             </button>
           </div>
 
@@ -1755,7 +1878,111 @@
                 onRefreshDb={refreshDbData}
               />
             )}
+            {activeTab === 'board' && (
+              <FreeBordTab currentUser={currentUser} isAdmin={isAdmin} />
+            )}
           </main>
+
+          {/* ── 자유게시판 모달 (항상 DOM에 존재 — board.js가 ID로 직접 제어) ── */}
+
+          {/* 글쓰기 모달 */}
+          <div id="boardWriteModal" style={{display:'none', position:'fixed', inset:0, backgroundColor:'rgba(15,23,42,0.6)', backdropFilter:'blur(4px)', zIndex:60, alignItems:'center', justifyContent:'center', padding:'16px'}}>
+            <div style={{backgroundColor:'white', borderRadius:'24px', width:'100%', maxWidth:'560px', boxShadow:'0 25px 50px -12px rgba(0,0,0,0.25)', overflow:'hidden'}}>
+              <div style={{padding:'24px', borderBottom:'1px solid #f1f5f9', display:'flex', alignItems:'center', justifyContent:'space-between'}}>
+                <h3 style={{fontSize:'18px', fontWeight:'bold', color:'#1e293b', margin:0}}>새 글 작성</h3>
+                <button onClick={() => typeof Board !== 'undefined' && Board.closeWriteModal()}
+                  style={{padding:'8px', borderRadius:'50%', border:'none', cursor:'pointer', background:'transparent', lineHeight:1}}>
+                  <i className="ph ph-x" style={{fontSize:'18px', color:'#64748b'}}></i>
+                </button>
+              </div>
+              <div style={{padding:'24px', display:'flex', flexDirection:'column', gap:'16px'}}>
+                <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'16px'}}>
+                  <div>
+                    <label style={{fontSize:'11px', fontWeight:'700', color:'#94a3b8', textTransform:'uppercase', display:'block', marginBottom:'6px', letterSpacing:'0.05em'}}>카테고리</label>
+                    <select id="boardPostCategory" style={{width:'100%', padding:'11px 12px', backgroundColor:'#f8fafc', border:'1px solid #e2e8f0', borderRadius:'12px', outline:'none', fontWeight:'500', fontSize:'14px', boxSizing:'border-box'}}>
+                      <option value="일반">일반</option>
+                      <option value="개선제안">개선제안</option>
+                      <option value="질문">질문</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{fontSize:'11px', fontWeight:'700', color:'#94a3b8', textTransform:'uppercase', display:'block', marginBottom:'6px', letterSpacing:'0.05em'}}>현장명</label>
+                    <div id="boardPostNicknameLabel" style={{width:'100%', padding:'11px 12px', backgroundColor:'#eff6ff', border:'1px solid #bfdbfe', borderRadius:'12px', fontSize:'14px', fontWeight:'600', color:'#2563eb', boxSizing:'border-box', minHeight:'42px'}}>
+                    </div>
+                  </div>
+                </div>
+                <div>
+                  <label style={{fontSize:'11px', fontWeight:'700', color:'#94a3b8', textTransform:'uppercase', display:'block', marginBottom:'6px', letterSpacing:'0.05em'}}>제목</label>
+                  <input type="text" id="boardPostTitle" placeholder="제목을 입력하세요"
+                    style={{width:'100%', padding:'11px 12px', backgroundColor:'#f8fafc', border:'1px solid #e2e8f0', borderRadius:'12px', outline:'none', fontSize:'14px', boxSizing:'border-box'}} />
+                </div>
+                <div>
+                  <label style={{fontSize:'11px', fontWeight:'700', color:'#94a3b8', textTransform:'uppercase', display:'block', marginBottom:'6px', letterSpacing:'0.05em'}}>내용</label>
+                  <textarea id="boardPostContent" rows={6} placeholder="내용을 입력해주세요."
+                    style={{width:'100%', padding:'11px 12px', backgroundColor:'#f8fafc', border:'1px solid #e2e8f0', borderRadius:'12px', outline:'none', resize:'none', fontSize:'14px', boxSizing:'border-box', fontFamily:'inherit'}} />
+                </div>
+              </div>
+              <div style={{padding:'16px 24px', backgroundColor:'#f8fafc', display:'flex', gap:'12px'}}>
+                <button id="boardSubmitBtn" onClick={() => typeof Board !== 'undefined' && Board.submitPost()}
+                  style={{flex:1, backgroundColor:'#4f46e5', color:'white', fontWeight:'700', padding:'12px', borderRadius:'12px', border:'none', cursor:'pointer', fontSize:'14px', display:'flex', alignItems:'center', justifyContent:'center', gap:'8px'}}>
+                  등록하기
+                </button>
+                <button onClick={() => typeof Board !== 'undefined' && Board.closeWriteModal()}
+                  style={{padding:'12px 24px', backgroundColor:'white', border:'1px solid #e2e8f0', color:'#64748b', fontWeight:'700', borderRadius:'12px', cursor:'pointer', fontSize:'14px'}}>
+                  취소
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* 상세보기 + 댓글 모달 */}
+          <div id="boardDetailModal" style={{display:'none', position:'fixed', inset:0, backgroundColor:'rgba(15,23,42,0.6)', backdropFilter:'blur(4px)', zIndex:70, alignItems:'center', justifyContent:'center', padding:'16px'}}>
+            <div style={{backgroundColor:'white', borderRadius:'24px', width:'100%', maxWidth:'672px', boxShadow:'0 25px 50px -12px rgba(0,0,0,0.25)', overflow:'hidden', display:'flex', flexDirection:'column', maxHeight:'90vh'}}>
+              <div style={{padding:'24px', borderBottom:'1px solid #f1f5f9', display:'flex', alignItems:'flex-start', justifyContent:'space-between', flexShrink:0}}>
+                <div id="boardDetailHeader" style={{flex:1, minWidth:0}}></div>
+                <button onClick={() => typeof Board !== 'undefined' && Board.closeDetailModal()}
+                  style={{padding:'8px', borderRadius:'50%', border:'none', cursor:'pointer', background:'transparent', flexShrink:0, marginLeft:'12px', lineHeight:1}}>
+                  <i className="ph ph-x" style={{fontSize:'20px', color:'#64748b'}}></i>
+                </button>
+              </div>
+              <div className="board-modal-scroll" style={{padding:'24px', overflowY:'auto', flex:1}}>
+                <div id="boardDetailBody" style={{color:'#334155', lineHeight:'1.75', marginBottom:'32px', whiteSpace:'pre-wrap', fontSize:'15px'}}></div>
+                <div style={{borderTop:'1px solid #f1f5f9', paddingTop:'24px'}}>
+                  <h4 style={{fontSize:'14px', fontWeight:'700', color:'#0f172a', marginBottom:'16px', display:'flex', alignItems:'center', gap:'8px', margin:'0 0 16px 0'}}>
+                    <i className="ph ph-chat-circle-dots" style={{color:'#4f46e5', fontSize:'18px'}}></i>
+                    댓글 <span id="boardCommentCount" style={{color:'#4f46e5'}}>0</span>
+                  </h4>
+                  <div id="boardCommentList" style={{display:'flex', flexDirection:'column', gap:'10px', marginBottom:'8px'}}></div>
+                </div>
+              </div>
+              <div style={{padding:'16px 24px', backgroundColor:'#f8fafc', borderTop:'1px solid #f1f5f9', flexShrink:0}}>
+                <div style={{display:'flex', gap:'8px', alignItems:'center'}}>
+                  <span id="boardCommentNicknameLabel" style={{padding:'8px 12px', backgroundColor:'#eff6ff', border:'1px solid #bfdbfe', borderRadius:'12px', fontSize:'12px', fontWeight:'700', color:'#2563eb', whiteSpace:'nowrap', flexShrink:0}}>
+                    현장명
+                  </span>
+                  <input type="text" id="boardCommentInput" placeholder="댓글을 입력하세요..."
+                    style={{flex:1, padding:'10px 12px', backgroundColor:'white', border:'1px solid #e2e8f0', borderRadius:'12px', fontSize:'13px', outline:'none', boxSizing:'border-box'}}
+                    onKeyPress={(e) => { if(e.key === 'Enter' && typeof Board !== 'undefined') Board.submitComment(); }} />
+                  <button id="boardSubmitCommentBtn" onClick={() => typeof Board !== 'undefined' && Board.submitComment()}
+                    style={{backgroundColor:'#4f46e5', color:'white', padding:'10px 18px', borderRadius:'12px', fontWeight:'700', fontSize:'13px', border:'none', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', minWidth:'56px', flexShrink:0}}>
+                    등록
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* 알림 모달 */}
+          <div id="boardAlertModal">
+            <div style={{backgroundColor:'white', borderRadius:'16px', boxShadow:'0 25px 50px -12px rgba(0,0,0,0.25)', padding:'32px', width:'100%', maxWidth:'360px', textAlign:'center'}}>
+              <i className="ph-duotone ph-warning-circle" style={{color:'#f59e0b', fontSize:'40px', display:'block', marginBottom:'12px'}}></i>
+              <p id="boardAlertMessage" style={{color:'#334155', fontWeight:'500', marginBottom:'20px', whiteSpace:'pre-line', fontSize:'14px', margin:'0 0 20px 0'}}></p>
+              <button onClick={() => document.getElementById('boardAlertModal').classList.remove('active')}
+                style={{backgroundColor:'#4f46e5', color:'white', fontWeight:'700', padding:'10px 32px', borderRadius:'12px', border:'none', cursor:'pointer', fontSize:'14px'}}>
+                확인
+              </button>
+            </div>
+          </div>
 
           {/* 비밀번호 변경 모달 */}
           {isChangePwdOpen && (
