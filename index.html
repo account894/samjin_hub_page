@@ -30,7 +30,8 @@
     // ==========================================
     const WEBHOOK_LOAD_URL = 'https://158.179.174.86.sslip.io/webhook-test/795acae9-62b5-4ba0-b0ce-a80f9e3a5d88';
     const WEBHOOK_EDIT_URL = 'https://158.179.174.86.sslip.io/webhook-test/0d46d84b-8a63-4c11-9536-bb50c5e34a5f';
-    const WEBHOOK_PWD_URL  = 'https://158.179.174.86.sslip.io/webhook-test/ae2b0e5c-37ec-42f9-a5b3-4bd7469872c4';
+    const WEBHOOK_PWD_URL      = 'https://158.179.174.86.sslip.io/webhook-test/ae2b0e5c-37ec-42f9-a5b3-4bd7469872c4';
+    const WEBHOOK_NEW_SITE_URL = 'https://158.179.174.86.sslip.io/webhook-test/c40cc374-0ff2-4d2f-b390-ea811ecfac71';
 
     // ==========================================
     // Google Sheets 설정
@@ -294,33 +295,25 @@
 
     // ==========================================
     // 보안설정 컴포넌트
-    // siteList: DB정보에서 추출한 현장 목록
+    // siteList   : DB정보에서 추출한 현장 목록
+    // dbUserList : DB정보 전체 행 (ID·비밀번호·현장명·회사·계약금액)
+    // onRefreshDb: DB 재조회 콜백
     // ==========================================
-    const SecurityTab = ({ contracts, setContracts, isAdmin, setIsPwdModalOpen, siteList }) => {
-      const effectiveSiteList = siteList.length > 0 ? siteList : [];
-      const [selectedSite, setSelectedSite] = useState(effectiveSiteList[0] || '');
-      const [inputAmount, setInputAmount]   = useState('');
-      const [successMsg, setSuccessMsg]     = useState('');
+    const SecurityTab = ({ contracts, setContracts, isAdmin, setIsPwdModalOpen, siteList, dbUserList, onRefreshDb }) => {
 
-      // siteList 변경 시 선택값 동기화
-      useEffect(() => {
-        if (effectiveSiteList.length > 0 && !effectiveSiteList.includes(selectedSite)) {
-          setSelectedSite(effectiveSiteList[0]);
-        }
-      }, [effectiveSiteList]);
-
-      useEffect(() => {
-        const currentSaved = contracts[selectedSite];
-        setInputAmount(currentSaved ? currentSaved.toLocaleString() : '');
-        setSuccessMsg('');
-      }, [selectedSite, contracts]);
+      // 신규 현장 모달
+      const [showModal,    setShowModal]    = useState(false);
+      const [form, setForm] = useState({ 현장명: '', ID: '', 비밀번호: '', 회사: '', 계약금액: '' });
+      const [isSending,    setIsSending]    = useState(false);
+      const [sendResult,   setSendResult]   = useState(null); // 'ok' | 'err: ...'
+      const [showPwdMap,   setShowPwdMap]   = useState({});   // {rowIndex: bool}
 
       if (!isAdmin) {
         return (
           <div className="flex flex-col items-center justify-center p-12 bg-white rounded-xl border border-gray-200 shadow-sm">
             <span className="material-symbols-outlined text-5xl text-gray-300 mb-4">lock</span>
             <h2 className="text-xl font-bold text-gray-800 mb-2">보안 설정 접근 제한</h2>
-            <p className="text-sm text-gray-500 mb-6 text-center">이 탭은 현장별 전체 금액을 설정하는 곳으로,<br/>관리자 권한이 필요합니다.</p>
+            <p className="text-sm text-gray-500 mb-6 text-center">이 탭은 현장 DB 정보를 관리하는 곳으로,<br/>관리자 권한이 필요합니다.</p>
             <button onClick={() => setIsPwdModalOpen(true)} className="px-6 py-2.5 bg-gray-900 text-white font-bold rounded-lg hover:bg-black transition-colors">
               관리자 인증하기
             </button>
@@ -328,47 +321,199 @@
         );
       }
 
-      const handleSave = (e) => {
-        e.preventDefault();
-        const numericAmount = parseInt(inputAmount.replace(/,/g, '')) || 0;
-        setContracts(prev => ({ ...prev, [selectedSite]: numericAmount }));
-        setSuccessMsg('✅ 현장 전체 계약금액이 저장되었습니다.');
-        setTimeout(() => setSuccessMsg(''), 3000);
+      const handleFormChange = (field, raw) => {
+        if (field === '계약금액') {
+          const num = raw.replace(/\D/g, '');
+          setForm(f => ({ ...f, 계약금액: num ? Number(num).toLocaleString() : '' }));
+        } else {
+          setForm(f => ({ ...f, [field]: raw }));
+        }
       };
 
+      const handleCreateSite = async (e) => {
+        e.preventDefault();
+        setSendResult(null);
+        setIsSending(true);
+        try {
+          const payload = {
+            현장명:   form.현장명.trim(),
+            ID:       form.ID.trim(),
+            비밀번호: form.비밀번호.trim(),
+            회사:     form.회사.trim(),
+            계약금액: parseInt(form.계약금액.replace(/,/g, ''), 10) || 0,
+          };
+          const res = await fetchWithTimeout(WEBHOOK_NEW_SITE_URL, {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json, text/plain, */*' },
+            body:    JSON.stringify(payload),
+          });
+          if (!res.ok) {
+            const errText = await res.text().catch(() => '');
+            throw new Error(`HTTP ${res.status}${errText ? ' — ' + errText.slice(0, 100) : ''}`);
+          }
+          setSendResult('ok');
+          setForm({ 현장명: '', ID: '', 비밀번호: '', 회사: '', 계약금액: '' });
+          if (onRefreshDb) onRefreshDb();
+        } catch (err) {
+          setSendResult('err: ' + err.message);
+        } finally {
+          setIsSending(false);
+        }
+      };
+
+      const togglePwd = (idx) => setShowPwdMap(prev => ({ ...prev, [idx]: !prev[idx] }));
+
       return (
-        <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm animate-fade-in">
-          <div className="flex items-center gap-2 mb-6 border-b pb-4">
-            <span className="material-symbols-outlined text-blue-600">admin_panel_settings</span>
-            <h2 className="text-lg font-bold text-gray-800">현장별 계약금액 설정 (관리자)</h2>
-          </div>
-          <form onSubmit={handleSave} className="space-y-5 max-w-sm">
-            <div>
-              <label className="block text-xs font-bold text-gray-600 mb-1">설정할 현장 선택</label>
-              {effectiveSiteList.length === 0 ? (
-                <p className="text-xs text-gray-400 p-2">DB에 등록된 현장이 없습니다.</p>
-              ) : (
-                <select value={selectedSite} onChange={e => setSelectedSite(e.target.value)}
-                  className="w-full border border-gray-300 p-2.5 rounded-lg text-sm bg-gray-50 focus:ring-2 focus:ring-blue-500 outline-none">
-                  {effectiveSiteList.map(site => <option key={site} value={site}>{site}</option>)}
-                </select>
-              )}
+        <div className="space-y-4 animate-fade-in">
+
+          {/* 헤더 */}
+          <div className="flex items-center justify-between bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
+            <div className="flex items-center gap-2">
+              <span className="material-symbols-outlined text-blue-600">admin_panel_settings</span>
+              <h2 className="font-bold text-gray-800">현장 DB 관리 (관리자)</h2>
             </div>
-            <div>
-              <label className="block text-xs font-bold text-gray-600 mb-1">현장 전체 계약금액 (원)</label>
-              <input type="text" value={inputAmount}
-                onChange={e => setInputAmount(e.target.value.replace(/\D/g, '').replace(/\B(?=(\d{3})+(?!\d))/g, ","))}
-                placeholder="예: 10,000,000,000"
-                className="w-full border border-gray-300 p-2.5 rounded-lg text-sm font-bold focus:ring-2 focus:ring-blue-500 outline-none" required />
-              <div className="mt-1 text-[11px] text-gray-500 font-medium h-4">
-                {inputAmount && numberToKorean(parseInt(inputAmount.replace(/,/g, '')))}
+            <div className="flex items-center gap-2">
+              {onRefreshDb && (
+                <button onClick={onRefreshDb}
+                  className="px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg text-sm font-bold flex items-center gap-1 hover:bg-gray-200 transition-colors border border-gray-200">
+                  <span className="material-symbols-outlined" style={{fontSize:'15px'}}>refresh</span>
+                  새로고침
+                </button>
+              )}
+              <button onClick={() => { setShowModal(true); setSendResult(null); }}
+                className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm font-bold flex items-center gap-1 hover:bg-blue-700 transition-colors shadow-sm">
+                <span className="material-symbols-outlined" style={{fontSize:'15px'}}>add</span>
+                신규 현장생성
+              </button>
+            </div>
+          </div>
+
+          {/* DB 현장 목록 테이블 */}
+          <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+            <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+              <span className="text-sm font-bold text-gray-700">등록된 현장 목록</span>
+              <span className="text-xs text-gray-400 font-medium">총 {dbUserList.length}건</span>
+            </div>
+            {dbUserList.length === 0 ? (
+              <div className="text-center p-10 text-gray-400 text-sm flex flex-col items-center gap-2">
+                <span className="material-symbols-outlined text-3xl text-gray-300">domain</span>
+                DB에 등록된 현장이 없습니다.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 border-b border-gray-100">
+                    <tr>
+                      <th className="text-left px-4 py-2.5 text-xs font-bold text-gray-500 w-6">#</th>
+                      <th className="text-left px-4 py-2.5 text-xs font-bold text-gray-500">현장명</th>
+                      <th className="text-left px-4 py-2.5 text-xs font-bold text-gray-500">아이디</th>
+                      <th className="text-left px-4 py-2.5 text-xs font-bold text-gray-500">비밀번호</th>
+                      <th className="text-right px-4 py-2.5 text-xs font-bold text-gray-500">계약금액</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {dbUserList.map((u, idx) => {
+                      const amt = parseAmount(u['계약금액']);
+                      return (
+                        <tr key={idx} className="hover:bg-gray-50 transition-colors">
+                          <td className="px-4 py-3 text-xs text-gray-400">{idx + 1}</td>
+                          <td className="px-4 py-3 font-bold text-gray-800 text-xs">{String(u['현장명'] ?? '-')}</td>
+                          <td className="px-4 py-3 text-xs text-gray-600 font-mono">{String(u['ID'] ?? '-')}</td>
+                          <td className="px-4 py-3 text-xs">
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-mono text-gray-600">
+                                {showPwdMap[idx] ? String(u['비밀번호'] ?? '-') : '••••••'}
+                              </span>
+                              <button onClick={() => togglePwd(idx)}
+                                className="text-gray-400 hover:text-gray-600 transition-colors flex-shrink-0">
+                                <span className="material-symbols-outlined" style={{fontSize:'14px'}}>
+                                  {showPwdMap[idx] ? 'visibility_off' : 'visibility'}
+                                </span>
+                              </button>
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 text-xs font-bold text-right tabular-nums text-blue-700">
+                            {amt > 0 ? `₩${amt.toLocaleString()}` : <span className="text-gray-300">-</span>}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* 신규 현장생성 모달 */}
+          {showModal && (
+            <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] p-4 backdrop-blur-sm animate-fade-in">
+              <div className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl border border-gray-100">
+                <div className="flex items-center justify-between mb-5">
+                  <div className="flex items-center gap-2">
+                    <span className="material-symbols-outlined text-blue-600">add_business</span>
+                    <h3 className="font-extrabold text-gray-800">신규 현장 생성</h3>
+                  </div>
+                  <button onClick={() => { setShowModal(false); setSendResult(null); }}
+                    className="text-gray-400 hover:text-gray-700 transition-colors">
+                    <span className="material-symbols-outlined">close</span>
+                  </button>
+                </div>
+
+                <form onSubmit={handleCreateSite} className="space-y-3">
+                  {[
+                    { field: '현장명',   placeholder: '현장명을 입력하세요',     type: 'text' },
+                    { field: 'ID',       placeholder: '로그인 아이디',           type: 'text' },
+                    { field: '비밀번호', placeholder: '비밀번호',                type: 'text' },
+                    { field: '회사',     placeholder: '회사명',                  type: 'text' },
+                  ].map(({ field, placeholder, type }) => (
+                    <div key={field}>
+                      <label className="block text-xs font-bold text-gray-600 mb-1">{field}</label>
+                      <input type={type} value={form[field]} required
+                        onChange={e => handleFormChange(field, e.target.value)}
+                        placeholder={placeholder}
+                        className="w-full border border-gray-300 px-3 py-2.5 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all" />
+                    </div>
+                  ))}
+                  <div>
+                    <label className="block text-xs font-bold text-gray-600 mb-1">계약금액 (원)</label>
+                    <input type="text" value={form.계약금액} required
+                      onChange={e => handleFormChange('계약금액', e.target.value)}
+                      placeholder="예: 10,000,000,000"
+                      className="w-full border border-gray-300 px-3 py-2.5 rounded-lg text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all" />
+                    <div className="mt-1 text-[11px] text-gray-400 h-4">
+                      {form.계약금액 && numberToKorean(parseInt(form.계약금액.replace(/,/g, '')))}
+                    </div>
+                  </div>
+
+                  {sendResult === 'ok' && (
+                    <div className="text-xs font-bold text-green-600 bg-green-50 p-2.5 rounded-lg border border-green-200 flex items-center gap-1.5">
+                      <span className="material-symbols-outlined" style={{fontSize:'14px'}}>check_circle</span>
+                      현장이 성공적으로 등록되었습니다.
+                    </div>
+                  )}
+                  {sendResult && sendResult.startsWith('err') && (
+                    <div className="text-xs font-bold text-red-600 bg-red-50 p-2.5 rounded-lg border border-red-200">
+                      {sendResult.replace('err: ', '')}
+                    </div>
+                  )}
+
+                  <div className="flex gap-2 pt-1">
+                    <button type="button" onClick={() => { setShowModal(false); setSendResult(null); }}
+                      className="flex-1 py-2.5 bg-gray-100 text-gray-700 font-bold rounded-lg hover:bg-gray-200 transition-colors text-sm">
+                      취소
+                    </button>
+                    <button type="submit" disabled={isSending}
+                      className="flex-1 py-2.5 bg-blue-600 text-white font-bold rounded-lg shadow hover:bg-blue-700 transition-colors text-sm disabled:opacity-50 flex items-center justify-center gap-1">
+                      {isSending
+                        ? <><span className="material-symbols-outlined animate-spin" style={{fontSize:'15px'}}>sync</span> 전송 중...</>
+                        : <><span className="material-symbols-outlined" style={{fontSize:'15px'}}>send</span> 등록하기</>
+                      }
+                    </button>
+                  </div>
+                </form>
               </div>
             </div>
-            {successMsg && <div className="text-xs font-bold text-green-600 bg-green-50 p-2 rounded">{successMsg}</div>}
-            <button type="submit" className="w-full py-2.5 bg-blue-600 text-white font-bold rounded-lg shadow hover:bg-blue-700 transition-colors">
-              저장하기
-            </button>
-          </form>
+          )}
         </div>
       );
     };
@@ -1181,11 +1326,12 @@
         try {
           const saved = localStorage.getItem('gisungUser');
           if (saved) {
-            const { userObj, isAdminSaved, contractsSaved, siteListSaved } = JSON.parse(saved);
+            const { userObj, isAdminSaved, contractsSaved, siteListSaved, userListSaved } = JSON.parse(saved);
             setCurrentUser(userObj);
             setIsAdmin(isAdminSaved || false);
             setContracts(contractsSaved || {});
             setDbSiteList(siteListSaved || []);
+            setDbUserList(userListSaved || []);
             setIsLoggedIn(true);
           }
         } catch (e) {
@@ -1193,8 +1339,9 @@
         }
       }, []);
 
-      // ---- DB정보에서 추출한 현장 목록 (공란 제거, 순서 유지) ----
+      // ---- DB정보에서 추출한 현장 목록 + 전체 행 ----
       const [dbSiteList, setDbSiteList] = useState([]);
+      const [dbUserList, setDbUserList] = useState([]);
 
       // ---- 앱 상태 ----
       const [activeTab,         setActiveTab]         = useState('statements');
@@ -1235,6 +1382,9 @@
             String(u['비밀번호'] ?? '').trim() === password
           );
           if (!matched) throw new Error('아이디 또는 비밀번호가 일치하지 않습니다.');
+
+          // DB 전체 행 저장 (보안설정 탭 표시용)
+          setDbUserList(users);
 
           // 현장 목록: 현장명이 있는 행만, 순서 유지, 중복 제거
           const siteNames = [];
@@ -1279,7 +1429,8 @@
             userObj,
             isAdminSaved:    isMaster,
             contractsSaved:  initContracts,
-            siteListSaved:   siteNames
+            siteListSaved:   siteNames,
+            userListSaved:   users
           }));
 
         } catch (e) {
@@ -1289,6 +1440,28 @@
           setIsLoginLoading(false);
         }
       };
+
+      // ==========================================
+      // DB정보 새로고침 (보안설정 탭 "새로고침" 버튼용)
+      // ==========================================
+      const refreshDbData = useCallback(async () => {
+        try {
+          const res = await fetchWithTimeout(DB_SHEETS_URL, { method: 'GET' });
+          if (!res.ok) return;
+          const text  = await res.text();
+          const users = parseGSheetResponse(text, DB_COL_NAMES);
+          setDbUserList(users);
+          const siteNames = [];
+          const seen = new Set();
+          users.forEach(u => {
+            const name = String(u['현장명'] ?? '').trim();
+            if (name && !seen.has(name)) { seen.add(name); siteNames.push(name); }
+          });
+          setDbSiteList(siteNames);
+        } catch (e) {
+          console.error('[refreshDb] 실패:', e.message);
+        }
+      }, []);
 
       // ==========================================
       // 로그아웃: 모든 상태 초기화
@@ -1455,6 +1628,8 @@
                 isAdmin={isAdmin}
                 setIsPwdModalOpen={setIsPwdModalOpen}
                 siteList={dbSiteList}
+                dbUserList={dbUserList}
+                onRefreshDb={refreshDbData}
               />
             )}
           </main>
