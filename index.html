@@ -147,36 +147,58 @@
       const filtered = statements.filter(s =>
         String(s.연도) === String(year) && String(s.월) === String(month)
       );
-      const summaryData = siteList.map(site => {
-        const ss = filtered.filter(s => s.현장명 === site);
+
+      // UI 카드와 동일한 구조로 현장별 1행씩 생성
+      const rows = siteList.map(site => {
+        const siteStmts  = filtered.filter(s => s.현장명 === site);
+        const isSubmitted = siteStmts.length > 0;
+        const contractAmt = isSubmitted ? parseAmount(siteStmts[0].계약금액) : 0;
+        const prevTotal   = siteStmts.reduce((sum, s) => sum + parseAmount(s.전회기성), 0);
+        const curTotal    = siteStmts.reduce((sum, s) => sum + parseAmount(s.금회기성), 0);
+        const cumTotal    = siteStmts.reduce((sum, s) => sum + parseAmount(s.누계기성), 0);
+        const rate        = contractAmt > 0 ? (cumTotal / contractAmt) * 100 : 0;
+        const rounds      = [...new Set(siteStmts.map(s => s.회차).filter(Boolean))].join(', ');
         return {
-          '현장명': site,
-          '제출여부': ss.length > 0 ? '제출완료' : '미제출',
-          '공종': [...new Set(ss.map(s => s.공종))].join(', '),
-          '금회합계(원)': ss.reduce((sum, s) => sum + parseAmount(s.금회기성), 0),
-          '제출자': ss.map(s => s.이름).join(', '),
-          '업데이트일': ss.map(s => s.업데이트).join(', ')
+          '현장명':   site,
+          '연도':     Number(year),
+          '월':       Number(month),
+          '회차':     rounds || '-',
+          '계약금액': contractAmt,
+          '전회':     prevTotal,
+          '금회':     curTotal,
+          '누계':     cumTotal,
+          '기성률':   contractAmt > 0 ? `${rate.toFixed(1)}%` : '-',
+          '제출여부': isSubmitted ? '제출완료' : '미제출',
         };
       });
-      const ws1 = XLSX.utils.json_to_sheet(summaryData);
-      ws1['!cols'] = [{ wch: 26 }, { wch: 10 }, { wch: 22 }, { wch: 18 }, { wch: 15 }, { wch: 15 }];
-      XLSX.utils.book_append_sheet(wb, ws1, `${year}년 ${month}월 현황`);
-      const detailData = filtered.map(s => ({
-        '이름': s.이름, '직책': s.직책, '이메일': s.이메일, '현장명': s.현장명,
-        '연도': s.연도, '월': s.월, '회차': s.회차, '공종': s.공종,
-        '계약금액': parseAmount(s.계약금액), '전회기성': parseAmount(s.전회기성),
-        '금회기성': parseAmount(s.금회기성), '누계기성': parseAmount(s.누계기성),
-        '잔여금액': parseAmount(s.잔여금액), '기성률': s.기성률, '업데이트': s.업데이트
-      }));
-      if (detailData.length > 0) {
-        const ws2 = XLSX.utils.json_to_sheet(detailData);
-        ws2['!cols'] = [
-          { wch: 12 }, { wch: 12 }, { wch: 25 }, { wch: 26 }, { wch: 6 }, { wch: 4 },
-          { wch: 5 }, { wch: 12 }, { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 16 },
-          { wch: 16 }, { wch: 8 }, { wch: 14 }
-        ];
-        XLSX.utils.book_append_sheet(wb, ws2, `${year}년 ${month}월 상세`);
-      }
+
+      // 합계 행
+      const sumContract = rows.reduce((s, r) => s + r['계약금액'], 0);
+      const sumPrev     = rows.reduce((s, r) => s + r['전회'], 0);
+      const sumCur      = rows.reduce((s, r) => s + r['금회'], 0);
+      const sumCum      = rows.reduce((s, r) => s + r['누계'], 0);
+      const sumRate     = sumContract > 0 ? `${((sumCum / sumContract) * 100).toFixed(1)}%` : '-';
+      const submitCount = rows.filter(r => r['제출여부'] === '제출완료').length;
+      rows.push({
+        '현장명':   '합계',
+        '연도':     '',
+        '월':       '',
+        '회차':     '',
+        '계약금액': sumContract,
+        '전회':     sumPrev,
+        '금회':     sumCur,
+        '누계':     sumCum,
+        '기성률':   sumRate,
+        '제출여부': `${submitCount}/${siteList.length} 제출`,
+      });
+
+      const ws = XLSX.utils.json_to_sheet(rows);
+      ws['!cols'] = [
+        { wch: 26 }, { wch: 6 }, { wch: 4 }, { wch: 8 },
+        { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 16 },
+        { wch: 8 },  { wch: 12 },
+      ];
+      XLSX.utils.book_append_sheet(wb, ws, `${year}년 ${month}월 현황`);
       XLSX.writeFile(wb, `기성현황_${year}년_${month}월.xlsx`);
     };
 
