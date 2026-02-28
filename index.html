@@ -126,7 +126,24 @@
     // 엑셀 다운로드 함수
     // ==========================================
 
-    const exportMonthlyToExcel = (statements, year, month, siteList) => {
+    // 웹 / Tauri 환경을 자동 구분해서 파일 저장
+    const saveExcelFile = async (wb, filename) => {
+      if (window.__TAURI__) {
+        // Tauri 환경: 사용자 지정 경로에 직접 저장
+        const data = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+        const savePath = await window.__TAURI__.dialog.save({
+          defaultPath: filename,
+          filters: [{ name: 'Excel', extensions: ['xlsx'] }]
+        });
+        if (!savePath) return; // 사용자가 취소
+        await window.__TAURI__.fs.writeBinaryFile(savePath, data);
+      } else {
+        // 웹 환경: 기존 브라우저 다운로드
+        XLSX.writeFile(wb, filename);
+      }
+    };
+
+    const exportMonthlyToExcel = async (statements, year, month, siteList) => {
       if (typeof XLSX === 'undefined') { alert('SheetJS 라이브러리가 로드되지 않았습니다.'); return; }
       const wb = XLSX.utils.book_new();
       const filtered = statements.filter(s =>
@@ -184,10 +201,10 @@
         { wch: 8 },  { wch: 12 },
       ];
       XLSX.utils.book_append_sheet(wb, ws, `${year}년 ${month}월 현황`);
-      XLSX.writeFile(wb, `기성현황_${year}년_${month}월.xlsx`);
+      await saveExcelFile(wb, `기성현황_${year}년_${month}월.xlsx`);
     };
 
-    const exportAllToExcel = (statements) => {
+    const exportAllToExcel = async (statements) => {
       if (typeof XLSX === 'undefined') { alert('SheetJS 라이브러리가 로드되지 않았습니다.'); return; }
       const wb = XLSX.utils.book_new();
       const allData = statements.map(s => ({
@@ -204,7 +221,7 @@
         { wch: 16 }, { wch: 8 }, { wch: 14 }
       ];
       XLSX.utils.book_append_sheet(wb, ws, '전체 기성 데이터');
-      XLSX.writeFile(wb, `전체_기성현황_${new Date().toISOString().split('T')[0]}.xlsx`);
+      await saveExcelFile(wb, `전체_기성현황_${new Date().toISOString().split('T')[0]}.xlsx`);
     };
 
     // ==========================================
@@ -1496,7 +1513,16 @@
           const dataWithIds = parseGSheetResponse(text, COL_NAMES);
           console.log('[loadData] 파싱된 행 수:', dataWithIds.length);
 
-          setStatements(dataWithIds);
+          // 최근 날짜가 상단에 오도록 내림차순 정렬 (연도 → 월 → 회차)
+          const sorted = [...dataWithIds].sort((a, b) => {
+            const yearDiff = Number(b.연도) - Number(a.연도);
+            if (yearDiff !== 0) return yearDiff;
+            const monthDiff = Number(b.월) - Number(a.월);
+            if (monthDiff !== 0) return monthDiff;
+            return Number(b.회차) - Number(a.회차);
+          });
+
+          setStatements(sorted);
           setLastUpdated(new Date());
 
           // 기성리스트의 계약금액 병합 (DB정보 값이 prev에 있으면 DB값 우선 유지)
