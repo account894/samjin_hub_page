@@ -11,16 +11,16 @@
 // ----------------------------------------------------------------
 
 /** 기성 내역 불러오기 (조회 전용) */
-var WEBHOOK_LOAD_URL = 'https://158.179.174.86.sslip.io/webhook-test/795acae9-62b5-4ba0-b0ce-a80f9e3a5d88';
+var WEBHOOK_LOAD_URL = 'https://158.179.174.86.sslip.io/webhook/795acae9-62b5-4ba0-b0ce-a80f9e3a5d88';
 
 /** 기성 내역 등록 · 수정 전송 */
-var WEBHOOK_EDIT_URL = 'https://158.179.174.86.sslip.io/webhook-test/0d46d84b-8a63-4c11-9536-bb50c5e34a5f';
+var WEBHOOK_EDIT_URL = 'https://158.179.174.86.sslip.io/webhook/0d46d84b-8a63-4c11-9536-bb50c5e34a5f';
 
 /** 비밀번호 변경 전송 */
-var WEBHOOK_PWD_URL = 'https://158.179.174.86.sslip.io/webhook-test/ae2b0e5c-37ec-42f9-a5b3-4bd7469872c4';
+var WEBHOOK_PWD_URL = 'https://158.179.174.86.sslip.io/webhook/ae2b0e5c-37ec-42f9-a5b3-4bd7469872c4';
 
 /** 신규 현장 등록 전송 */
-var WEBHOOK_NEW_SITE_URL = 'https://158.179.174.86.sslip.io/webhook-test/c40cc374-0ff2-4d2f-b390-ea811ecfac71';
+var WEBHOOK_NEW_SITE_URL = 'https://158.179.174.86.sslip.io/webhook/c40cc374-0ff2-4d2f-b390-ea811ecfac71';
 
 
 // ----------------------------------------------------------------
