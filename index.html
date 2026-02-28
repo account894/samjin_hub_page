@@ -84,6 +84,7 @@ if (typeof window.switchMainView !== 'function') {
 const Board = (() => {
     'use strict';
     let currentFilter = '전체';
+    let searchQuery   = '';
     let posts = [];
     let currentPostId = null;
     const DEFAULT_NOTICE = {
@@ -145,23 +146,29 @@ const Board = (() => {
         if (activeTab) activeTab.classList.add('active');
         renderPosts();
     }
+    function setSearch(q) { searchQuery = q.trim().toLowerCase(); renderPosts(); }
     function renderPosts() {
         const container = document.getElementById('boardPostList');
         if (!container) return;
         container.innerHTML = '';
+        const q = searchQuery;
+        function ok(p) {
+            if (!q) return true;
+            return p.title.toLowerCase().includes(q) || p.content.toLowerCase().includes(q) || p.nickname.toLowerCase().includes(q);
+        }
         const pinnedNotices = posts.filter(p => p.category === '공지');
         let displayPosts = [];
         if (currentFilter === '전체') {
             displayPosts = posts.filter(p => p.category !== '공지');
-            pinnedNotices.forEach(p => container.insertAdjacentHTML('beforeend', _createPostCard(p)));
+            pinnedNotices.filter(ok).forEach(p => container.insertAdjacentHTML('beforeend', _createPostCard(p)));
         } else if (currentFilter === '공지') {
             displayPosts = pinnedNotices;
         } else {
             displayPosts = posts.filter(p => p.category === currentFilter);
         }
-        displayPosts.forEach(p => container.insertAdjacentHTML('beforeend', _createPostCard(p)));
+        displayPosts.filter(ok).forEach(p => container.insertAdjacentHTML('beforeend', _createPostCard(p)));
         if (container.innerHTML === '') {
-            container.innerHTML = `<div class="py-20 text-center text-slate-400 font-medium">해당 카테고리에 게시글이 없습니다.</div>`;
+            container.innerHTML = `<div class="py-20 text-center text-slate-400 font-medium">${q ? '검색 결과가 없습니다.' : '해당 카테고리에 게시글이 없습니다.'}</div>`;
         }
     }
     function _createPostCard(post) {
@@ -309,7 +316,7 @@ const Board = (() => {
     }
     function closeWriteModal() { const m = document.getElementById('boardWriteModal'); if (m) m.style.display = 'none'; }
     function closeDetailModal() { const m = document.getElementById('boardDetailModal'); if (m) m.style.display = 'none'; currentPostId = null; }
-    return { loadPosts, setFilter, renderPosts, viewPostDetail, submitComment, submitPost, openWriteModal, closeWriteModal, closeDetailModal };
+    return { loadPosts, setFilter, setSearch, renderPosts, viewPostDetail, submitComment, submitPost, openWriteModal, closeWriteModal, closeDetailModal };
 })();
   </script>
 
@@ -1701,30 +1708,31 @@ const Board = (() => {
       return (
         <div className="animate-fade-in">
           {/* 헤더 */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
-            <div>
+          <div className="mb-6">
+            <div className="flex items-center justify-between gap-4 mb-1">
               <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
                 <i className="ph-fill ph-chats-teardrop" style={{color:'#4f46e5', fontSize:'22px'}}></i>
                 자유게시판
               </h2>
-              <p className="text-sm text-slate-500 mt-1">시스템 개선 제안 및 자유로운 의견을 남겨주세요.</p>
-            </div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <div style={{position:'relative'}}>
-                <i className="ph ph-magnifying-glass" style={{position:'absolute', left:'12px', top:'50%', transform:'translateY(-50%)', color:'#94a3b8', pointerEvents:'none'}}></i>
-                <input type="text" id="boardSearchInput" placeholder="검색어 입력..."
-                  className="bg-white border border-slate-200 rounded-xl text-sm outline-none"
-                  style={{paddingLeft:'36px', paddingRight:'16px', paddingTop:'8px', paddingBottom:'8px', width:'160px'}} />
-              </div>
-              <button onClick={() => typeof Board !== 'undefined' && Board.loadPosts()}
-                className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl font-bold text-sm shadow-sm flex items-center gap-2 transition-colors"
-                style={{padding:'8px 16px'}}>
-                <i className="ph-bold ph-arrows-clockwise" id="boardRefreshIcon"></i> 새로고침
-              </button>
               <button onClick={() => typeof Board !== 'undefined' && Board.openWriteModal()}
-                className="hover:bg-indigo-700 text-white rounded-xl font-bold text-sm flex items-center gap-2 transition-colors"
+                className="hover:bg-indigo-700 text-white rounded-xl font-bold text-sm flex items-center gap-2 transition-colors shrink-0"
                 style={{backgroundColor:'#4f46e5', padding:'8px 20px', boxShadow:'0 4px 14px rgba(79,70,229,0.3)'}}>
                 <i className="ph-bold ph-pencil-line"></i> 글쓰기
+              </button>
+            </div>
+            <p className="text-sm text-slate-500 mb-4 whitespace-nowrap">시스템 개선 제안 및 자유로운 의견을 남겨주세요.</p>
+            <div className="flex items-center gap-2">
+              <div style={{position:'relative', flex:1}}>
+                <i className="ph ph-magnifying-glass" style={{position:'absolute', left:'12px', top:'50%', transform:'translateY(-50%)', color:'#94a3b8', pointerEvents:'none'}}></i>
+                <input type="text" id="boardSearchInput" placeholder="제목 · 내용 · 작성자 검색..."
+                  onInput={e => typeof Board !== 'undefined' && Board.setSearch(e.target.value)}
+                  className="bg-white border border-slate-200 rounded-xl text-sm outline-none"
+                  style={{paddingLeft:'36px', paddingRight:'16px', paddingTop:'8px', paddingBottom:'8px', width:'100%', boxSizing:'border-box'}} />
+              </div>
+              <button onClick={() => { typeof Board !== 'undefined' && Board.loadPosts(); const el = document.getElementById('boardSearchInput'); if(el) el.value=''; typeof Board !== 'undefined' && Board.setSearch(''); }}
+                className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl font-bold text-sm shadow-sm flex items-center gap-2 transition-colors shrink-0"
+                style={{padding:'8px 16px'}}>
+                <i className="ph-bold ph-arrows-clockwise" id="boardRefreshIcon"></i> 새로고침
               </button>
             </div>
           </div>
