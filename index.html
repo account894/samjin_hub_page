@@ -17,8 +17,6 @@
   <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/bold/style.css">
   <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/fill/style.css">
   <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/duotone/style.css">
-  <!-- 자유게시판 전용 CSS -->
-  <link rel="stylesheet" href="freebord/board.css">
   <style>
     .material-symbols-outlined { display: inline-flex; align-items: center; justify-content: center; vertical-align: middle; }
     @keyframes fadeIn { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: translateY(0); } }
@@ -26,12 +24,250 @@
     .progress-ring__circle { transition: stroke-dashoffset 0.35s; transform: rotate(-90deg); transform-origin: 50% 50%; }
     @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
     .animate-spin { animation: spin 1s linear infinite; display: inline-block; }
+
+    /* ── 자유게시판 전용 CSS ── */
+    :root {
+      --board-badge-notice-bg: #fee2e2; --board-badge-notice-color: #ef4444;
+      --board-badge-suggestion-bg: #e0e7ff; --board-badge-suggestion-color: #4338ca;
+      --board-badge-general-bg: #f1f5f9; --board-badge-general-color: #64748b;
+      --board-badge-question-bg: #fef3c7; --board-badge-question-color: #b45309;
+    }
+    .post-card { transition: all 0.2s; }
+    .post-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.07); }
+    .badge-notice     { background-color: var(--board-badge-notice-bg);     color: var(--board-badge-notice-color); }
+    .badge-suggestion { background-color: var(--board-badge-suggestion-bg); color: var(--board-badge-suggestion-color); }
+    .badge-general    { background-color: var(--board-badge-general-bg);    color: var(--board-badge-general-color); }
+    .badge-question   { background-color: var(--board-badge-question-bg);   color: var(--board-badge-question-color); }
+    .board-tab-btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 8px 18px; border-radius: 999px; font-size: 14px; font-weight: 700;
+      transition: all 0.2s; border: 1px solid #e2e8f0;
+      background-color: white; color: #475569; cursor: pointer; white-space: nowrap;
+    }
+    .board-tab-btn.active { background-color: #1e293b; color: white; border-color: #1e293b; }
+    .board-modal-scroll::-webkit-scrollbar { width: 4px; }
+    .board-modal-scroll::-webkit-scrollbar-track { background: transparent; }
+    .board-modal-scroll::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
+    .no-scrollbar::-webkit-scrollbar { display: none; }
+    .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
   </style>
 </head>
 <body class="bg-gray-50 text-gray-900 font-sans">
   <div id="root"></div>
   <!-- 자유게시판 모듈 (Board 전역 객체) -->
-  <script src="freebord/board.js"></script>
+  <script>
+const _BOARD_DEFAULTS = {
+    OPENSHEET_API_BASE:       'https://opensheet.elk.sh',
+    BOARD_SHEET_ID:           '1K3X7vKsm21Bt9kIro8JpYcZmBU03nT7l5ipgsU6JAw4',
+    BOARD_SHEET_NAME:         'FreeBord',
+    N8N_WEBHOOK_BOARD_ADD:    'https://158.179.174.86.sslip.io/webhook/d1d1bf09-fd87-49ae-8621-71560a811188',
+    N8N_WEBHOOK_BOARD_UPDATE: 'https://158.179.174.86.sslip.io/webhook/24788509-4f32-416f-b457-f7040984a91c'
+};
+function _bcfg(key) {
+    if (typeof window.APP_CONFIG !== 'undefined' && window.APP_CONFIG[key] !== undefined) return window.APP_CONFIG[key];
+    if (typeof window.BOARD_CONFIG_LOCAL !== 'undefined' && window.BOARD_CONFIG_LOCAL[key] !== undefined) return window.BOARD_CONFIG_LOCAL[key];
+    return _BOARD_DEFAULTS[key];
+}
+function _boardAlert(msg) {
+    if (typeof window.customAlert === 'function') { window.customAlert(msg); return; }
+    const modal = document.getElementById('boardAlertModal');
+    const msgEl = document.getElementById('boardAlertMessage');
+    if (modal && msgEl) { msgEl.textContent = String(msg); modal.style.display = 'flex'; return; }
+    window.alert(msg);
+}
+if (typeof window.switchMainView !== 'function') {
+    window.switchMainView = function(viewId) { if (viewId === 'home') window.history.back(); };
+}
+const Board = (() => {
+    'use strict';
+    let currentFilter = '전체';
+    let posts = [];
+    let currentPostId = null;
+    const DEFAULT_NOTICE = {
+        id: 'notice-1', category: '공지', nickname: '관리자',
+        title: '자유게시판 이용 안내',
+        content: '자유롭게 의견을 남겨주세요.\n오류 신고 및 개선 제안은 \'개선제안\' 카테고리를 이용해 주세요.',
+        date: new Date(), views: 0, comments: []
+    };
+    async function loadPosts() {
+        const refreshIcon = document.getElementById('boardRefreshIcon');
+        if (refreshIcon) refreshIcon.classList.add('animate-spin');
+        const container = document.getElementById('boardPostList');
+        if (container) {
+            container.innerHTML = `<div class="py-20 text-center"><i class="ph-bold ph-spinner animate-spin text-3xl text-indigo-500 mx-auto mb-3 block"></i><p class="text-slate-400 font-medium text-sm">게시글을 불러오는 중입니다...</p></div>`;
+        }
+        const sheetId = _bcfg('BOARD_SHEET_ID');
+        if (!sheetId) {
+            if (container) container.innerHTML = `<div class="py-16 text-center"><p class="text-slate-500 font-medium text-sm">게시판 시트 ID가 설정되지 않았습니다.</p></div>`;
+            posts = [DEFAULT_NOTICE]; renderPosts();
+            if (refreshIcon) refreshIcon.classList.remove('animate-spin');
+            return;
+        }
+        const url = `${_bcfg('OPENSHEET_API_BASE')}/${sheetId}/${encodeURIComponent(_bcfg('BOARD_SHEET_NAME'))}`;
+        console.log('[Board] 데이터 로드 URL:', url);
+        const controller = new AbortController();
+        const _timeoutId = setTimeout(() => controller.abort(), 8000);
+        try {
+            const res = await fetch(url, { signal: controller.signal });
+            clearTimeout(_timeoutId);
+            if (!res.ok) { const e = new Error(`HTTP ${res.status}`); e.status = res.status; throw e; }
+            const data = await res.json();
+            if (data && data.length > 0 && !data.error) {
+                const sheetPosts = data.map(row => ({
+                    id:       Number(row['id']) || Date.now() + Math.random(),
+                    category: row['카테고리'] || '일반',
+                    nickname: row['닉네임']   || '익명',
+                    title:    row['제목']     || '제목 없음',
+                    content:  row['내용']     || '',
+                    date:     new Date(row['작성일'] || Date.now()),
+                    views:    Number(row['조회수'] || 0),
+                    comments: row['댓글'] ? _parseComments(row['댓글']) : []
+                })).reverse();
+                posts = [DEFAULT_NOTICE, ...sheetPosts];
+            } else { posts = [DEFAULT_NOTICE]; }
+        } catch (err) {
+            clearTimeout(_timeoutId);
+            console.warn('[Board] 데이터 로드 실패:', err.name === 'AbortError' ? '타임아웃(8초)' : err.message);
+            posts = [DEFAULT_NOTICE];
+        } finally {
+            if (refreshIcon) refreshIcon.classList.remove('animate-spin');
+            renderPosts();
+        }
+    }
+    function _parseComments(str) { try { return JSON.parse(str); } catch (e) { return []; } }
+    function setFilter(category) {
+        currentFilter = category;
+        document.querySelectorAll('.board-tab-btn').forEach(btn => btn.classList.remove('active'));
+        const activeTab = document.getElementById(`board-tab-${category}`);
+        if (activeTab) activeTab.classList.add('active');
+        renderPosts();
+    }
+    function renderPosts() {
+        const container = document.getElementById('boardPostList');
+        if (!container) return;
+        container.innerHTML = '';
+        const pinnedNotices = posts.filter(p => p.category === '공지');
+        let displayPosts = [];
+        if (currentFilter === '전체') {
+            displayPosts = posts.filter(p => p.category !== '공지');
+            pinnedNotices.forEach(p => container.insertAdjacentHTML('beforeend', _createPostCard(p)));
+        } else if (currentFilter === '공지') {
+            displayPosts = pinnedNotices;
+        } else {
+            displayPosts = posts.filter(p => p.category === currentFilter);
+        }
+        displayPosts.forEach(p => container.insertAdjacentHTML('beforeend', _createPostCard(p)));
+        if (container.innerHTML === '') {
+            container.innerHTML = `<div class="py-20 text-center text-slate-400 font-medium">해당 카테고리에 게시글이 없습니다.</div>`;
+        }
+    }
+    function _createPostCard(post) {
+        const isNotice   = post.category === '공지';
+        const badgeClass = isNotice ? 'badge-notice' : post.category === '개선제안' ? 'badge-suggestion' : post.category === '질문' ? 'badge-question' : 'badge-general';
+        const cardBg     = isNotice ? 'bg-rose-50 border-rose-100' : 'bg-white border-slate-100';
+        const iconCls    = isNotice ? 'ph-fill ph-megaphone text-rose-500 bg-white' : post.category === '개선제안' ? 'ph-fill ph-lightbulb text-amber-400 bg-amber-50' : post.category === '질문' ? 'ph-fill ph-question text-rose-500 bg-rose-50' : 'ph ph-chat-text text-slate-400 bg-slate-50';
+        const commentCount = post.comments ? post.comments.length : 0;
+        return `<div class="post-card ${cardBg} border p-4 rounded-2xl flex items-center justify-between shadow-sm cursor-pointer animate-fade-in" onclick="Board.viewPostDetail('${post.id}')"><div class="flex items-center gap-4 min-w-0"><span class="w-10 h-10 rounded-xl flex items-center justify-center shadow-sm shrink-0"><i class="${iconCls} text-xl"></i></span><div class="min-w-0"><div class="flex items-center gap-2 flex-wrap"><span class="${badgeClass} px-2 py-0.5 rounded text-[10px] font-bold uppercase">${post.category}</span><h3 class="font-medium text-slate-800 tracking-tight truncate">${post.title}</h3></div><p class="text-xs text-slate-400 mt-1">${post.nickname} | ${_formatTime(post.date)} | 조회 ${post.views}</p></div></div><div class="flex items-center gap-2 text-slate-400 shrink-0 ml-4"><i class="ph ph-chat-circle text-lg"></i><span class="text-xs font-bold">${commentCount}</span></div></div>`;
+    }
+    function _formatTime(date) {
+        if (!(date instanceof Date)) date = new Date(date);
+        const diff = Date.now() - date;
+        const h = Math.floor(diff / 3600000);
+        if (h < 1) { const m = Math.floor(diff / 60000); return m <= 0 ? '방금 전' : `${m}분 전`; }
+        if (h < 24) return `${h}시간 전`;
+        const y = date.getFullYear(), mo = String(date.getMonth()+1).padStart(2,'0'), d = String(date.getDate()).padStart(2,'0');
+        return `${y}.${mo}.${d}`;
+    }
+    function viewPostDetail(id) {
+        const post = posts.find(p => String(p.id) === String(id));
+        if (!post) return;
+        currentPostId = post.id; post.views++;
+        const badgeClass = post.category === '공지' ? 'badge-notice' : post.category === '개선제안' ? 'badge-suggestion' : post.category === '질문' ? 'badge-question' : 'badge-general';
+        document.getElementById('boardDetailHeader').innerHTML = `<span class="${badgeClass} px-2 py-0.5 rounded text-[10px] font-bold uppercase mb-2 inline-block">${post.category}</span><h3 class="text-xl font-bold text-slate-900">${post.title}</h3><p class="text-xs text-slate-400 mt-1">${post.nickname} | ${new Date(post.date).toLocaleString()}</p>`;
+        document.getElementById('boardDetailBody').innerText = post.content;
+        document.getElementById('boardDetailModal').style.display = 'flex';
+        _renderComments(); renderPosts();
+    }
+    function _renderComments() {
+        const post = posts.find(p => String(p.id) === String(currentPostId));
+        if (!post) return;
+        const container = document.getElementById('boardCommentList');
+        const countEl   = document.getElementById('boardCommentCount');
+        if (countEl) countEl.innerText = post.comments ? post.comments.length : 0;
+        if (!container) return;
+        container.innerHTML = '';
+        if (!post.comments || post.comments.length === 0) {
+            container.innerHTML = `<p class="text-center text-xs text-slate-300 py-4">첫 번째 댓글을 남겨보세요.</p>`; return;
+        }
+        post.comments.forEach(c => {
+            container.insertAdjacentHTML('beforeend', `<div class="bg-white border border-slate-100 p-3 rounded-2xl animate-fade-in"><div class="flex items-center justify-between mb-1"><span class="text-xs font-bold text-indigo-600">${c.nickname}</span><span class="text-[10px] text-slate-300">${_formatTime(c.date)}</span></div><p class="text-xs text-slate-600 leading-relaxed">${c.text}</p></div>`);
+        });
+    }
+    async function submitComment() {
+        const nickname = window.boardCurrentNickname || '익명';
+        const text = document.getElementById('boardCommentInput').value.trim();
+        if (!text) return;
+        const btn = document.getElementById('boardSubmitCommentBtn');
+        if (btn) { btn.innerHTML = `<i class="ph-bold ph-spinner animate-spin"></i>`; btn.disabled = true; }
+        const post = posts.find(p => String(p.id) === String(currentPostId));
+        if (!post) return;
+        if (!post.comments) post.comments = [];
+        post.comments.push({ nickname, text, date: new Date().toISOString() });
+        document.getElementById('boardCommentInput').value = '';
+        _renderComments(); renderPosts();
+        const updateUrl = _bcfg('N8N_WEBHOOK_BOARD_UPDATE');
+        if (updateUrl) {
+            try {
+                const res = await fetch(updateUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: post.id, comments: JSON.stringify(post.comments) }) });
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            } catch (err) { console.warn('[Board] 댓글 웹훅 전송 실패:', err.message); }
+        }
+        if (btn) { btn.innerHTML = '등록'; btn.disabled = false; }
+    }
+    async function submitPost() {
+        const category = document.getElementById('boardPostCategory').value;
+        const nickname = window.boardCurrentNickname || '익명';
+        const titleEl   = document.getElementById('boardPostTitle');
+        const contentEl = document.getElementById('boardPostContent');
+        const title   = titleEl   ? titleEl.value.trim()   : '';
+        const content = contentEl ? contentEl.value.trim() : '';
+        const btn = document.getElementById('boardSubmitBtn');
+        if (!title || !content) { _boardAlert('제목과 내용을 입력해주세요.'); return; }
+        if (btn) { btn.innerHTML = `<i class="ph-bold ph-spinner animate-spin mr-2"></i> 등록 중...`; btn.disabled = true; }
+        const newPost = { id: Date.now(), category, nickname, title, content, date: new Date().toISOString(), views: 0, comments: '[]' };
+        const addUrl = _bcfg('N8N_WEBHOOK_BOARD_ADD');
+        if (addUrl) {
+            try {
+                const res = await fetch(addUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newPost) });
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            } catch (err) {
+                console.warn('[Board] 글쓰기 웹훅 전송 실패:', err.message);
+                _boardAlert('⚠️ n8n 서버 연결에 실패했습니다.\n글은 화면에만 표시되며 서버에는 저장되지 않았습니다.');
+            }
+        }
+        newPost.comments = [];
+        posts.splice(1, 0, newPost);
+        renderPosts(); closeWriteModal();
+        if (btn) { btn.innerHTML = '등록하기'; btn.disabled = false; }
+    }
+    function openWriteModal() {
+        const nick = window.boardCurrentNickname || '익명';
+        const nicknameLabel = document.getElementById('boardPostNicknameLabel');
+        if (nicknameLabel) nicknameLabel.textContent = nick;
+        const commentLabel = document.getElementById('boardCommentNicknameLabel');
+        if (commentLabel) commentLabel.textContent = nick;
+        const titleEl = document.getElementById('boardPostTitle');
+        if (titleEl) titleEl.value = '';
+        const contentEl = document.getElementById('boardPostContent');
+        if (contentEl) contentEl.value = '';
+        const modal = document.getElementById('boardWriteModal');
+        if (modal) modal.style.display = 'flex';
+    }
+    function closeWriteModal() { const m = document.getElementById('boardWriteModal'); if (m) m.style.display = 'none'; }
+    function closeDetailModal() { const m = document.getElementById('boardDetailModal'); if (m) m.style.display = 'none'; currentPostId = null; }
+    return { loadPosts, setFilter, renderPosts, viewPostDetail, submitComment, submitPost, openWriteModal, closeWriteModal, closeDetailModal };
+})();
+  </script>
 
   <script type="text/babel">
     const { useState, useEffect, useCallback } = React;
@@ -1973,11 +2209,11 @@
           </div>
 
           {/* 알림 모달 */}
-          <div id="boardAlertModal">
+          <div id="boardAlertModal" style={{display:'none', position:'fixed', inset:0, backgroundColor:'rgba(15,23,42,0.6)', backdropFilter:'blur(4px)', zIndex:9999, alignItems:'center', justifyContent:'center', padding:'16px'}}>
             <div style={{backgroundColor:'white', borderRadius:'16px', boxShadow:'0 25px 50px -12px rgba(0,0,0,0.25)', padding:'32px', width:'100%', maxWidth:'360px', textAlign:'center'}}>
               <i className="ph-duotone ph-warning-circle" style={{color:'#f59e0b', fontSize:'40px', display:'block', marginBottom:'12px'}}></i>
-              <p id="boardAlertMessage" style={{color:'#334155', fontWeight:'500', marginBottom:'20px', whiteSpace:'pre-line', fontSize:'14px', margin:'0 0 20px 0'}}></p>
-              <button onClick={() => document.getElementById('boardAlertModal').classList.remove('active')}
+              <p id="boardAlertMessage" style={{color:'#334155', fontWeight:'500', whiteSpace:'pre-line', fontSize:'14px', margin:'0 0 20px 0'}}></p>
+              <button onClick={() => { document.getElementById('boardAlertModal').style.display = 'none'; }}
                 style={{backgroundColor:'#4f46e5', color:'white', fontWeight:'700', padding:'10px 32px', borderRadius:'12px', border:'none', cursor:'pointer', fontSize:'14px'}}>
                 확인
               </button>
