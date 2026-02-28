@@ -307,6 +307,7 @@
       const [isSending,    setIsSending]    = useState(false);
       const [sendResult,   setSendResult]   = useState(null); // 'ok' | 'err: ...'
       const [showPwdMap,   setShowPwdMap]   = useState({});   // {rowIndex: bool}
+      const [isRefreshing, setIsRefreshing] = useState(false);
 
       if (!isAdmin) {
         return (
@@ -353,12 +354,26 @@
           }
           setSendResult('ok');
           setForm({ 현장명: '', ID: '', 비밀번호: '', 회사: '', 계약금액: '' });
-          if (onRefreshDb) onRefreshDb();
+          // n8n이 구글시트에 기록할 시간을 주고 새로고침
+          setTimeout(async () => {
+            if (onRefreshDb) {
+              setIsRefreshing(true);
+              try { await onRefreshDb(); } catch (_) {}
+              finally { setIsRefreshing(false); }
+            }
+          }, 2000);
         } catch (err) {
           setSendResult('err: ' + err.message);
         } finally {
           setIsSending(false);
         }
+      };
+
+      const handleRefresh = async () => {
+        if (!onRefreshDb || isRefreshing) return;
+        setIsRefreshing(true);
+        try { await onRefreshDb(); } catch (_) {}
+        finally { setIsRefreshing(false); }
       };
 
       const togglePwd = (idx) => setShowPwdMap(prev => ({ ...prev, [idx]: !prev[idx] }));
@@ -373,13 +388,11 @@
               <h2 className="font-bold text-gray-800">현장 DB 관리 (관리자)</h2>
             </div>
             <div className="flex items-center gap-2">
-              {onRefreshDb && (
-                <button onClick={onRefreshDb}
-                  className="px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg text-sm font-bold flex items-center gap-1 hover:bg-gray-200 transition-colors border border-gray-200">
-                  <span className="material-symbols-outlined" style={{fontSize:'15px'}}>refresh</span>
-                  새로고침
-                </button>
-              )}
+              <button onClick={handleRefresh} disabled={isRefreshing}
+                className="px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg text-sm font-bold flex items-center gap-1 hover:bg-gray-200 transition-colors border border-gray-200 disabled:opacity-50">
+                <span className={`material-symbols-outlined ${isRefreshing ? 'animate-spin' : ''}`} style={{fontSize:'15px'}}>refresh</span>
+                {isRefreshing ? '조회 중...' : '새로고침'}
+              </button>
               <button onClick={() => { setShowModal(true); setSendResult(null); }}
                 className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm font-bold flex items-center gap-1 hover:bg-blue-700 transition-colors shadow-sm">
                 <span className="material-symbols-outlined" style={{fontSize:'15px'}}>add</span>
@@ -1383,13 +1396,16 @@
           );
           if (!matched) throw new Error('아이디 또는 비밀번호가 일치하지 않습니다.');
 
-          // DB 전체 행 저장 (보안설정 탭 표시용)
-          setDbUserList(users);
+          // 현장명·ID 둘 다 있는 유효한 행만 (보안설정 탭 표시용)
+          const validUsers = users.filter(u =>
+            String(u['현장명'] ?? '').trim() && String(u['ID'] ?? '').trim()
+          );
+          setDbUserList(validUsers);
 
           // 현장 목록: 현장명이 있는 행만, 순서 유지, 중복 제거
           const siteNames = [];
           const seen = new Set();
-          users.forEach(u => {
+          validUsers.forEach(u => {
             const name = String(u['현장명'] ?? '').trim();
             if (name && !seen.has(name)) { seen.add(name); siteNames.push(name); }
           });
@@ -1430,7 +1446,7 @@
             isAdminSaved:    isMaster,
             contractsSaved:  initContracts,
             siteListSaved:   siteNames,
-            userListSaved:   users
+            userListSaved:   validUsers
           }));
 
         } catch (e) {
@@ -1446,20 +1462,30 @@
       // ==========================================
       const refreshDbData = useCallback(async () => {
         try {
-          const res = await fetchWithTimeout(DB_SHEETS_URL, { method: 'GET' });
-          if (!res.ok) return;
+          // 캐시버스팅: 매번 신선한 응답을 받기 위해 타임스탬프 파라미터 추가
+          const url = DB_SHEETS_URL + `&_=${Date.now()}`;
+          const res = await fetchWithTimeout(url, {
+            method: 'GET',
+            headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' },
+          });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
           const text  = await res.text();
           const users = parseGSheetResponse(text, DB_COL_NAMES);
-          setDbUserList(users);
+          // 현장명과 ID가 모두 있는 유효한 행만 저장
+          const validUsers = users.filter(u =>
+            String(u['현장명'] ?? '').trim() && String(u['ID'] ?? '').trim()
+          );
+          setDbUserList(validUsers);
           const siteNames = [];
           const seen = new Set();
-          users.forEach(u => {
+          validUsers.forEach(u => {
             const name = String(u['현장명'] ?? '').trim();
             if (name && !seen.has(name)) { seen.add(name); siteNames.push(name); }
           });
           setDbSiteList(siteNames);
         } catch (e) {
           console.error('[refreshDb] 실패:', e.message);
+          throw e; // SecurityTab의 isRefreshing 해제를 위해 re-throw
         }
       }, []);
 
