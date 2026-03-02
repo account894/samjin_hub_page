@@ -1503,7 +1503,7 @@ const Board = (() => {
               </div>
               <div className="mt-3 bg-amber-100/60 rounded-lg p-3 text-[11px] text-amber-800 space-y-1">
                 <p className="font-bold">📌 해결 방법</p>
-                <p>① 구글 시트 <b>"공유"</b> → <b>"링크가 있는 모든 사용자"</b> → <b>"뷰어"</b> 설정</p>
+                <p>① 시트 <b>"공유"</b> → <b>"링크가 있는 모든 사용자"</b> → <b>"뷰어"</b> 설정</p>
                 <p>② 시트명이 정확히 <b>"{SHEET_NAME}"</b> 인지 확인</p>
               </div>
             </div>
@@ -1513,7 +1513,7 @@ const Board = (() => {
             {isLoading ? (
               <div className="text-center p-14 text-gray-400 font-medium flex flex-col items-center gap-3">
                 <span className="material-symbols-outlined animate-spin text-4xl text-blue-400">sync</span>
-                <span>구글 시트에서 데이터를 불러오는 중...</span>
+                <span> 데이터를 불러오는 중...</span>
                 <span className="text-[11px]">시트: {SHEET_NAME}</span>
               </div>
             ) : statements.filter(s => !selectedSite || s.현장명 === selectedSite).length === 0 ? (
@@ -2346,3 +2346,4 @@ const Board = (() => {
   </script>
 </body>
 </html>
+
